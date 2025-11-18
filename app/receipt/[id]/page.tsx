@@ -1,6 +1,6 @@
 "use client";
 
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { useReadContract } from "wagmi";
 import {
   ARC_RECEIPTS_ADDRESS,
@@ -33,14 +33,14 @@ function formatTimestamp(ts: bigint): string {
 
 export default function ReceiptPage() {
   const params = useParams<{ id: string }>();
+  const searchParams = useSearchParams();
   const id = params?.id;
   const receiptId = id ? BigInt(id) : BigInt(0);
 
-  const {
-    data,
-    isLoading,
-    error,
-  } = useReadContract({
+  // 🔹 نحاول نقرأ tx من كويري سترنغ: /receipt/5?tx=0x123...
+  const txHash = searchParams.get("tx") || null;
+
+  const { data, isLoading, error } = useReadContract({
     address: ARC_RECEIPTS_ADDRESS,
     abi: ARC_RECEIPTS_ABI,
     functionName: "getReceipt",
@@ -98,7 +98,12 @@ export default function ReceiptPage() {
     timestamp: receipt.timestamp ?? receipt[9],
   };
 
-  const explorerLink = `https://testnet.arcscan.app/address/${ARC_RECEIPTS_ADDRESS}`;
+  // 🔹 لو فيه txHash نستخدم رابط المعاملة، غير كذا نرجع لرابط العقد كـ fallback
+  const explorerLink = txHash
+    ? `https://testnet.arcscan.app/tx/${txHash}`
+    : `https://testnet.arcscan.app/address/${ARC_RECEIPTS_ADDRESS}`;
+
+  const explorerLabel = txHash ? "Transaction" : "Contract";
 
   return (
     <section className="space-y-6">
@@ -152,7 +157,9 @@ export default function ReceiptPage() {
 
         <div className="border-t border-slate-800 pt-3 mt-2 text-sm space-y-2">
           <div>
-            <div className="text-slate-400 text-xs mb-1">Note / description</div>
+            <div className="text-slate-400 text-xs mb-1">
+              Note / description
+            </div>
             <div className="text-slate-100">{receiptStruct.reason}</div>
           </div>
 
@@ -182,7 +189,7 @@ export default function ReceiptPage() {
 
         <div className="border-t border-slate-800 pt-3 mt-3 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
           <div className="text-slate-400">
-            Contract:{" "}
+            {explorerLabel}:{" "}
             <a
               href={explorerLink}
               target="_blank"

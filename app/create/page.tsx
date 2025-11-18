@@ -229,7 +229,8 @@ export default function CreateReceiptPage() {
   useEffect(() => {
     if (isPayConfirmed && expectedReceiptId) {
       setIsFormOpen(false);
-      router.push(`/receipt/${expectedReceiptId}`);
+      router.push(`/receipt/${expectedReceiptId}?tx=${payTxHash}`);
+
     }
   }, [isPayConfirmed, expectedReceiptId, router]);
 
