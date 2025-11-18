@@ -152,14 +152,14 @@ export default function ReceiptPage() {
 
         <div className="border-t border-slate-800 pt-3 mt-2 text-sm space-y-2">
           <div>
-            <div className="text-slate-400 text-xs mb-1">Reason</div>
+            <div className="text-slate-400 text-xs mb-1">Note / description</div>
             <div className="text-slate-100">{receiptStruct.reason}</div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
             <div>
               <div className="text-slate-400 text-xs mb-1">
-                Source currency
+                Token type from
               </div>
               <div className="text-slate-100">
                 {receiptStruct.sourceCurrency}
@@ -167,14 +167,14 @@ export default function ReceiptPage() {
             </div>
             <div>
               <div className="text-slate-400 text-xs mb-1">
-                Destination currency
+                Token type to
               </div>
               <div className="text-slate-100">
                 {receiptStruct.destinationCurrency}
               </div>
             </div>
             <div>
-              <div className="text-slate-400 text-xs mb-1">Corridor</div>
+              <div className="text-slate-400 text-xs mb-1">Payment route</div>
               <div className="text-slate-100">{receiptStruct.corridor}</div>
             </div>
           </div>

@@ -247,7 +247,6 @@ export default function CreateReceiptPage() {
       return;
     }
 
-    // ✅ toAddress دائمًا من نوع 0x${string}
     let toAddress: `0x${string}` = address;
     if (to) {
       if (!to.startsWith("0x") || to.length !== 42) {
@@ -389,14 +388,13 @@ export default function CreateReceiptPage() {
                   onChange={(e) => setAmount(e.target.value)}
                 />
                 <p className="text-xs text-slate-500 mt-1">
-                  Required. USDC with 6 decimals. The button will automatically
-                  approve and send.
+                  Required. USDC 
                 </p>
                 <p className="text-[11px] text-slate-500 mt-1">
-                  Current allowance:{" "}
+                  {" "}
                   {allowanceValue
                     ? `${formatUsdc(allowanceValue)} USDC`
-                    : "0 USDC"}
+                    : ""}
                 </p>
               </div>
             </div>
@@ -420,7 +418,7 @@ export default function CreateReceiptPage() {
 
             <div>
               <label className="block text-sm mb-1 text-slate-200">
-                Reason (optional)
+                Note / description (optional)
               </label>
               <input
                 className="w-full rounded-md bg-slate-950 border border-slate-700 px-3 py-2 text-sm text-slate-50 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500/50 focus:border-sky-400"
@@ -433,32 +431,40 @@ export default function CreateReceiptPage() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <div>
                 <label className="block text-sm mb-1 text-slate-200">
-                  Source currency (optional)
+                  Token type from (optional)
                 </label>
                 <input
                   className="w-full rounded-md bg-slate-950 border border-slate-700 px-3 py-2 text-sm text-slate-50 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500/50 focus:border-sky-400"
                   value={sourceCurrency}
-                  onChange={(e) => setSourceCurrency(e.target.value)}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setSourceCurrency(value);
+                    setCorridor(`${value}-${destinationCurrency}`);
+                  }}
                 />
               </div>
               <div>
                 <label className="block text-sm mb-1 text-slate-200">
-                  Destination currency (optional)
+                  Token type to (optional)
                 </label>
                 <input
                   className="w-full rounded-md bg-slate-950 border border-slate-700 px-3 py-2 text-sm text-slate-50 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500/50 focus:border-sky-400"
                   value={destinationCurrency}
-                  onChange={(e) => setDestinationCurrency(e.target.value)}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setDestinationCurrency(value);
+                    setCorridor(`${sourceCurrency}-${value}`);
+                  }}
                 />
               </div>
               <div>
                 <label className="block text-sm mb-1 text-slate-200">
-                  Corridor (optional)
+                  Payment route (auto)
                 </label>
                 <input
                   className="w-full rounded-md bg-slate-950 border border-slate-700 px-3 py-2 text-sm text-slate-50 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500/50 focus:border-sky-400"
                   value={corridor}
-                  onChange={(e) => setCorridor(e.target.value)}
+                  readOnly
                 />
               </div>
             </div>
@@ -565,7 +571,7 @@ export default function CreateReceiptPage() {
                 </span>
               </div>
               <div className="flex flex-col items-end">
-                <span className="text-[10px] text-slate-500">Corridor</span>
+                <span className="text-[10px] text-slate-500">Payment route</span>
                 <span className="text-[11px] text-slate-200">
                   {lastMyReceipt.corridor}
                 </span>

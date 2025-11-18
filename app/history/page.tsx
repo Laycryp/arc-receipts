@@ -331,7 +331,7 @@ export default function HistoryPage() {
                         </div>
                         <div className="flex flex-col items-end">
                           <span className="text-[10px] text-slate-500">
-                            Corridor
+                            Payment route
                           </span>
                           <span className="text-[11px] text-slate-200">
                             {r.corridor}
