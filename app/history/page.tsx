@@ -19,7 +19,7 @@ const categoryLabels: Record<number, string> = {
 };
 
 function formatUsdc(amount: bigint): string {
-  const DECIMALS = 1_000_000n;
+  const DECIMALS = BigInt("1000000");
   const whole = amount / DECIMALS;
   const frac = amount % DECIMALS;
   const fracStr = frac.toString().padStart(6, "0").replace(/0+$/, "");
@@ -67,6 +67,9 @@ export default function HistoryPage() {
     let cancelled = false;
 
     async function loadReceipts() {
+      // ✅ حارس إضافي لـ TypeScript داخل الدالة نفسها
+      if (!publicClient) return;
+
       setIsLoading(true);
       setFetchError(null);
 
@@ -140,9 +143,7 @@ export default function HistoryPage() {
 
   // فلترة بالتاريخ
   const fromTs = fromDate ? new Date(fromDate).getTime() / 1000 : null;
-  const toTs = toDate
-    ? new Date(toDate).getTime() / 1000 + 24 * 60 * 60
-    : null;
+  const toTs = toDate ? new Date(toDate).getTime() / 1000 + 24 * 60 * 60 : null;
 
   const addrLower = address?.toLowerCase();
 
@@ -179,11 +180,10 @@ export default function HistoryPage() {
     <section className="space-y-6">
       <header className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold mb-1 text-slate-50">
-            History
-          </h1>
+          <h1 className="text-2xl font-semibold mb-1 text-slate-50">History</h1>
           <p className="text-sm text-slate-400">
-            Private history of receipts where your connected wallet is sender or receiver.
+            Private history of receipts where your connected wallet is sender or
+            receiver.
           </p>
         </div>
       </header>
@@ -259,8 +259,8 @@ export default function HistoryPage() {
             </div>
 
             <p className="text-xs text-slate-500">
-              The dApp only displays receipts where your wallet is involved. Other users&apos; receipts
-              are hidden from this view.
+              The dApp only displays receipts where your wallet is involved.
+              Other users&apos; receipts are hidden from this view.
             </p>
           </div>
 
@@ -287,7 +287,7 @@ export default function HistoryPage() {
                 {galleryItems.map((r) => (
                   <Link key={r.id.toString()} href={`/receipt/${r.id.toString()}`}>
                     <div className="relative rounded-xl bg-slate-900/80 border border-sky-500/60 shadow-[0_0_20px_rgba(56,189,248,0.5)] px-3 py-3 text-xs text-slate-100 hover:-translate-y-[1px] hover:shadow-[0_0_26px_rgba(56,189,248,0.8)] transition-transform duration-150 cursor-pointer">
-                      <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center justify_between mb-2">
                         <div className="flex flex-col">
                           <span className="text-[11px] text-slate-400">
                             PAYMENT RECEIPT
@@ -297,13 +297,16 @@ export default function HistoryPage() {
                           </span>
                         </div>
                         <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-900 border border-slate-600 text-slate-300">
-                          {categoryLabels[r.category] ?? `Category #${r.category}`}
+                          {categoryLabels[r.category] ??
+                            `Category #${r.category}`}
                         </span>
                       </div>
 
                       <div className="flex items-center justify-between mb-1">
                         <div className="flex flex-col">
-                          <span className="text-[10px] text-slate-500">From</span>
+                          <span className="text-[10px] text-slate-500">
+                            From
+                          </span>
                           <span className="text-[11px] text-slate-200 truncate max-w-[120px]">
                             {r.from}
                           </span>
@@ -386,8 +389,7 @@ export default function HistoryPage() {
                   <tbody>
                     {recentRows.map((r) => {
                       const isSent =
-                        addrLower &&
-                        r.from.toLowerCase() === addrLower;
+                        addrLower && r.from.toLowerCase() === addrLower;
                       const typeLabel = isSent ? "Sent" : "Received";
 
                       return (

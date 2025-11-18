@@ -18,7 +18,7 @@ const categoryLabels: Record<number, string> = {
 };
 
 function formatUsdc(amount: bigint): string {
-  const DECIMALS = 1_000_000n;
+  const DECIMALS = BigInt("1000000");
   const whole = amount / DECIMALS;
   const frac = amount % DECIMALS;
   const fracStr = frac.toString().padStart(6, "0").replace(/0+$/, "");
@@ -34,7 +34,7 @@ function formatTimestamp(ts: bigint): string {
 export default function ReceiptPage() {
   const params = useParams<{ id: string }>();
   const id = params?.id;
-  const receiptId = id ? BigInt(id) : 0n;
+  const receiptId = id ? BigInt(id) : BigInt(0);
 
   const {
     data,

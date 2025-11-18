@@ -16,7 +16,7 @@ import {
 // إعداد wagmi + RainbowKit
 const config = getDefaultConfig({
   appName: "Arc Receipts",
-  projectId: "arc-receipts-dev", // لو حاب لاحقًا تحط projectId حقيقي من WalletConnect
+  projectId: "arc-receipts-dev", // لاحقًا حط projectId حقيقي من WalletConnect
   chains: [arcTestnet],
   ssr: true,
 });
@@ -28,7 +28,8 @@ export function Web3Providers({ children }: { children: ReactNode }) {
   return (
     <WagmiConfig config={config}>
       <QueryClientProvider client={queryClient}>
-        <RainbowKitProvider chains={[arcTestnet]}>
+        {/* في v2 ما نمرّر chains هنا، تكفي في config فوق */}
+        <RainbowKitProvider>
           {children}
         </RainbowKitProvider>
       </QueryClientProvider>

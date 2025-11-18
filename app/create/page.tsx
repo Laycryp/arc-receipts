@@ -39,28 +39,33 @@ type Receipt = {
   timestamp: bigint;
 };
 
-function parseUsdcAmount(amount: string): bigint {
-  const trimmed = amount.trim();
-  if (!trimmed) {
-    throw new Error("Amount is required");
-  }
-
-  const [whole, frac = ""] = trimmed.split(".");
-
-  if (!/^\d+$/.test(whole) || !/^\d*$/.test(frac)) {
-    throw new Error("Invalid amount format");
-  }
+function parseAmountToBigInt(amount: string): bigint {
+  const [whole, frac = ""] = amount.split(".");
+  const wholeBig = BigInt(whole || "0");
 
   const fracPadded = (frac + "000000").slice(0, 6);
-  const wholeBig = BigInt(whole || "0");
   const fracBig = BigInt(fracPadded || "0");
 
-  const DECIMALS = 1_000_000n;
+  const DECIMALS = BigInt("1000000");
+
   return wholeBig * DECIMALS + fracBig;
 }
 
+function parseUsdcAmount(input: string): bigint {
+  const value = input.trim();
+  if (!value) {
+    throw new Error("Amount is required.");
+  }
+
+  if (!/^\d+(\.\d{0,6})?$/.test(value)) {
+    throw new Error("Invalid USDC amount format (max 6 decimals).");
+  }
+
+  return parseAmountToBigInt(value);
+}
+
 function formatUsdc(amount: bigint): string {
-  const DECIMALS = 1_000_000n;
+  const DECIMALS = BigInt("1000000");
   const whole = amount / DECIMALS;
   const frac = amount % DECIMALS;
   const fracStr = frac.toString().padStart(6, "0").replace(/0+$/, "");
@@ -80,8 +85,8 @@ export default function CreateReceiptPage() {
 
   const [to, setTo] = useState("");
   const [amount, setAmount] = useState("");
-  const [category, setCategory] = useState<number>(2); // Donation default
-  const [reason, setReason] = useState(""); // بدون اقتراح
+  const [category, setCategory] = useState<number>(2);
+  const [reason, setReason] = useState("");
   const [sourceCurrency, setSourceCurrency] = useState("USD");
   const [destinationCurrency, setDestinationCurrency] = useState("USD");
   const [corridor, setCorridor] = useState("USD-USD");
@@ -92,7 +97,6 @@ export default function CreateReceiptPage() {
   );
   const [isFormOpen, setIsFormOpen] = useState(false);
 
-  // allowance
   const {
     data: allowance,
     refetch: refetchAllowance,
@@ -106,9 +110,8 @@ export default function CreateReceiptPage() {
     },
   } as any);
 
-  const allowanceValue = (allowance as bigint | undefined) ?? 0n;
+  const allowanceValue = (allowance as bigint | undefined) ?? BigInt(0);
 
-  // آخر إيصال للمحفظة المتصلة فقط
   const [lastMyReceipt, setLastMyReceipt] = useState<Receipt | null>(null);
   const [lastMyReceiptLoading, setLastMyReceiptLoading] = useState(false);
   const [lastMyReceiptError, setLastMyReceiptError] = useState<string | null>(
@@ -122,6 +125,9 @@ export default function CreateReceiptPage() {
       return;
     }
 
+    const client = publicClient;
+    const currentAddress = address;
+
     let cancelled = false;
 
     async function loadLastMyReceipt() {
@@ -129,14 +135,14 @@ export default function CreateReceiptPage() {
       setLastMyReceiptError(null);
 
       try {
-        const nextId = (await publicClient.readContract({
+        const nextId = (await client.readContract({
           address: ARC_RECEIPTS_ADDRESS,
           abi: ARC_RECEIPTS_ABI,
           functionName: "nextReceiptId",
           args: [],
         })) as bigint;
 
-        if (nextId <= 1n) {
+        if (nextId <= BigInt(1)) {
           if (!cancelled) {
             setLastMyReceipt(null);
           }
@@ -144,16 +150,16 @@ export default function CreateReceiptPage() {
           return;
         }
 
-        const lastExistingId = nextId - 1n;
+        const lastExistingId = nextId - BigInt(1);
         const lastId = Number(lastExistingId);
         const maxToFetch = 50;
         const startId = Math.max(1, lastId - maxToFetch + 1);
-        const addrLower = address.toLowerCase();
+        const addrLower = currentAddress.toLowerCase();
 
         let found: Receipt | null = null;
 
         for (let id = lastId; id >= startId; id--) {
-          const data: any = await publicClient.readContract({
+          const data: any = await client.readContract({
             address: ARC_RECEIPTS_ADDRESS,
             abi: ARC_RECEIPTS_ABI,
             functionName: "getReceipt",
@@ -204,7 +210,6 @@ export default function CreateReceiptPage() {
     };
   }, [publicClient, isConnected, address]);
 
-  // write hooks
   const {
     data: payTxHash,
     writeContractAsync: writePayWithReceiptAsync,
@@ -242,8 +247,8 @@ export default function CreateReceiptPage() {
       return;
     }
 
-    // recipient اختياري: لو فارغ يرسل لنفسه
-    let toAddress = address;
+    // ✅ toAddress دائمًا من نوع 0x${string}
+    let toAddress: `0x${string}` = address;
     if (to) {
       if (!to.startsWith("0x") || to.length !== 42) {
         setFormError(
@@ -251,13 +256,13 @@ export default function CreateReceiptPage() {
         );
         return;
       }
-      toAddress = to;
+      toAddress = to as `0x${string}`;
     }
 
     let usdcAmount: bigint;
     try {
       usdcAmount = parseUsdcAmount(amount);
-      if (usdcAmount <= 0n) {
+      if (usdcAmount <= BigInt(0)) {
         throw new Error("Amount must be greater than zero.");
       }
     } catch (err: any) {
@@ -266,7 +271,6 @@ export default function CreateReceiptPage() {
     }
 
     try {
-      // 1) approve إذا الـ allowance أقل من المبلغ
       if (allowanceValue < usdcAmount) {
         const approveHash = await writeApproveAsync({
           address: ARC_USDC_ADDRESS,
@@ -284,7 +288,6 @@ export default function CreateReceiptPage() {
         }, 2000);
       }
 
-      // 2) نجيب nextReceiptId قبل الإرسال عشان redirect
       const nextId = (await publicClient.readContract({
         address: ARC_RECEIPTS_ADDRESS,
         abi: ARC_RECEIPTS_ABI,
@@ -293,7 +296,6 @@ export default function CreateReceiptPage() {
 
       setExpectedReceiptId(nextId.toString());
 
-      // 3) send with receipt
       await writePayWithReceiptAsync({
         address: ARC_RECEIPTS_ADDRESS,
         abi: ARC_RECEIPTS_ABI,
@@ -302,7 +304,7 @@ export default function CreateReceiptPage() {
           toAddress,
           usdcAmount,
           category,
-          reason, // ممكن تكون ""
+          reason,
           sourceCurrency,
           destinationCurrency,
           corridor,
@@ -318,7 +320,6 @@ export default function CreateReceiptPage() {
 
   return (
     <section className="space-y-6">
-      {/* HEADER + زر الإنشاء */}
       <header className="flex items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold mb-1 text-slate-50">
@@ -339,7 +340,6 @@ export default function CreateReceiptPage() {
         </button>
       </header>
 
-      {/* بنر الفورم */}
       {isFormOpen && (
         <div className="bg-[#050814] border border-sky-500/60 rounded-2xl shadow-[0_0_30px_rgba(56,189,248,0.35)] p-5 space-y-4 relative">
           <div className="flex items-center justify-between mb-2">
@@ -504,7 +504,6 @@ export default function CreateReceiptPage() {
         </div>
       )}
 
-      {/* آخر إيصال للمحفظة المتصلة فقط */}
       <div className="bg-[#050814] border border-slate-800 rounded-2xl p-4 shadow-[0_0_25px_rgba(15,23,42,0.9)] space-y-3">
         <h2 className="text-sm font-semibold text-slate-50">
           Last receipt for this wallet
