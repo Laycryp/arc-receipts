@@ -63,8 +63,10 @@ export default function ReceiptPage() {
   useEffect(() => {
     if (txHash || !receiptId || !publicClient) return;
 
-    // If we don't have the hash in URL, let's find it from logs
     async function fetchTxHashFromLogs() {
+      // ✅ FIX: TypeScript Guard inside the async function
+      if (!publicClient) return;
+
       setIsFetchingHash(true);
       try {
         const logs = await publicClient.getLogs({
@@ -75,7 +77,7 @@ export default function ReceiptPage() {
             args: {
                 id: receiptId
             },
-            fromBlock: 'earliest' // In production, optimize this range
+            fromBlock: 'earliest' 
         });
 
         if (logs.length > 0) {
@@ -118,7 +120,6 @@ export default function ReceiptPage() {
     ? `https://testnet.arcscan.app/tx/${txHash}`
     : `https://testnet.arcscan.app/address/${ARC_RECEIPTS_ADDRESS}`;
   
-  // Label changes if we found the hash
   const linkLabel = (txHash || isFetchingHash) ? "View Transaction" : "View Contract";
 
   return (
