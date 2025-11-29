@@ -29,13 +29,20 @@ function formatUsdc(amount: bigint): string {
 function formatTimestamp(ts: bigint): string {
   const ms = Number(ts) * 1000;
   const d = new Date(ms);
-  return d.toLocaleString();
+  return d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 type Receipt = {
   id: bigint;
   from: string;
   to: string;
+  token: string; // New field
   amount: bigint;
   category: number;
   reason: string;
@@ -67,7 +74,6 @@ export default function HistoryPage() {
     let cancelled = false;
 
     async function loadReceipts() {
-      // ✅ حارس إضافي لـ TypeScript داخل الدالة نفسها
       if (!publicClient) return;
 
       setIsLoading(true);
@@ -81,14 +87,14 @@ export default function HistoryPage() {
           args: [],
         })) as bigint;
 
-        const latest = Number(nextId); // id القادم
-        if (latest === 0 || latest === 1) {
+        const latest = Number(nextId);
+        if (latest <= 1) {
           if (!cancelled) setReceipts([]);
           setIsLoading(false);
           return;
         }
 
-        const maxToFetch = 50; // حد أعلى من الإيصالات
+        const maxToFetch = 50;
         const lastExistingId = latest - 1;
         const startId = Math.max(1, lastExistingId - maxToFetch + 1);
 
@@ -102,17 +108,23 @@ export default function HistoryPage() {
             args: [BigInt(id)],
           });
 
+          // --- Parsing Logic for New Struct ---
+          // data structure: [id, from, to, token, amount, meta(tuple), timestamp]
+          const meta = data.meta || data[5];
+          const categoryVal = typeof meta.category !== 'undefined' ? Number(meta.category) : Number(meta[0]);
+
           const r: Receipt = {
-            id: data.id ?? data[0] ?? BigInt(id),
+            id: data.id ?? data[0],
             from: data.from ?? data[1],
             to: data.to ?? data[2],
-            amount: data.amount ?? data[3],
-            category: Number(data.category ?? data[4]),
-            reason: data.reason ?? data[5],
-            sourceCurrency: data.sourceCurrency ?? data[6],
-            destinationCurrency: data.destinationCurrency ?? data[7],
-            corridor: data.corridor ?? data[8],
-            timestamp: data.timestamp ?? data[9],
+            token: data.token ?? data[3],
+            amount: data.amount ?? data[4],
+            category: categoryVal,
+            reason: meta.reason ?? meta[1],
+            sourceCurrency: meta.sourceCurrency ?? meta[2],
+            destinationCurrency: meta.destinationCurrency ?? meta[3],
+            corridor: meta.corridor ?? meta[4],
+            timestamp: data.timestamp ?? data[6],
           };
 
           recs.push(r);
@@ -141,13 +153,11 @@ export default function HistoryPage() {
     };
   }, [publicClient, isConnected, address]);
 
-  // فلترة بالتاريخ
+  // Filtering Logic
   const fromTs = fromDate ? new Date(fromDate).getTime() / 1000 : null;
   const toTs = toDate ? new Date(toDate).getTime() / 1000 + 24 * 60 * 60 : null;
-
   const addrLower = address?.toLowerCase();
 
-  // 1) دائماً نأخذ الإيصالات التي المحفظة طرف فيها (خصوصية الداب)
   const myReceipts = receipts.filter((r) => {
     if (!addrLower) return false;
     const fromLower = r.from.toLowerCase();
@@ -161,15 +171,12 @@ export default function HistoryPage() {
     return true;
   });
 
-  // 2) نطبق الفلتر (all / sent / received) فوقها
   const filtered = myReceipts.filter((r) => {
     if (!addrLower) return true;
     const fromLower = r.from.toLowerCase();
     const toLower = r.to.toLowerCase();
-
     if (mode === "sent" && fromLower !== addrLower) return false;
     if (mode === "received" && toLower !== addrLower) return false;
-
     return true;
   });
 
@@ -177,267 +184,188 @@ export default function HistoryPage() {
   const recentRows = filtered;
 
   return (
-    <section className="space-y-6">
-      <header className="flex items-center justify-between gap-4">
+    <section className="space-y-8 pb-10">
+      <header className="flex flex-col md:flex-row md:items-end justify-between gap-4 border-b border-slate-800 pb-6">
         <div>
-          <h1 className="text-2xl font-semibold mb-1 text-slate-50">History</h1>
-          <p className="text-sm text-slate-400">
-            Private history of receipts where your connected wallet is sender or
-            receiver.
+          <h1 className="text-3xl font-bold text-slate-50 tracking-tight">History</h1>
+          <p className="text-sm text-slate-400 mt-2 max-w-lg leading-relaxed">
+            Your private ledger of verified payments. View all transactions where your wallet was the sender or recipient.
           </p>
         </div>
       </header>
 
       {!isConnected ? (
-        <div className="bg-[#050814] border border-slate-800 rounded-2xl p-6 text-sm text-slate-400">
-          Connect your wallet to view your receipts.
+        <div className="flex flex-col items-center justify-center py-20 bg-[#050814] border border-slate-800 border-dashed rounded-3xl">
+          <div className="text-slate-500 mb-2">Connect Wallet</div>
+          <p className="text-sm text-slate-600">Please connect your wallet to view your history.</p>
         </div>
       ) : (
         <>
-          {/* FILTERS */}
-          <div className="bg-[#050814] border border-slate-800 rounded-2xl p-4 shadow-[0_0_25px_rgba(15,23,42,0.9)] text-sm space-y-3">
-            <div className="flex flex-col md:flex-row gap-3 md:items-center md:justify-between">
-              <div className="flex gap-2 text-xs">
+          {/* FILTERS BAR */}
+          <div className="flex flex-col lg:flex-row gap-4 justify-between items-start lg:items-center bg-slate-900/40 border border-slate-800/60 p-2 rounded-2xl backdrop-blur-sm">
+            <div className="flex bg-slate-950/80 p-1 rounded-xl border border-slate-800">
+              {(["all", "sent", "received"] as const).map((m) => (
                 <button
-                  type="button"
-                  onClick={() => setMode("all")}
-                  className={[
-                    "px-3 py-1 rounded-full border",
-                    mode === "all"
-                      ? "bg-sky-500/15 border-sky-400 text-sky-100"
-                      : "bg-slate-950 border-slate-700 text-slate-300 hover:bg-slate-900",
-                  ].join(" ")}
+                  key={m}
+                  onClick={() => setMode(m)}
+                  className={`px-4 py-2 rounded-lg text-xs font-medium transition-all duration-200 ${
+                    mode === m
+                      ? "bg-slate-800 text-white shadow-sm"
+                      : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
+                  }`}
                 >
-                  All (my receipts)
+                  {m === "all" ? "All Receipts" : m === "sent" ? "Sent" : "Received"}
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setMode("sent")}
-                  className={[
-                    "px-3 py-1 rounded-full border",
-                    mode === "sent"
-                      ? "bg-sky-500/15 border-sky-400 text-sky-100"
-                      : "bg-slate-950 border-slate-700 text-slate-300 hover:bg-slate-900",
-                  ].join(" ")}
-                >
-                  Sent by me
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setMode("received")}
-                  className={[
-                    "px-3 py-1 rounded-full border",
-                    mode === "received"
-                      ? "bg-sky-500/15 border-sky-400 text-sky-100"
-                      : "bg-slate-950 border-slate-700 text-slate-300 hover:bg-slate-900",
-                  ].join(" ")}
-                >
-                  Received by me
-                </button>
-              </div>
-
-              <div className="flex gap-3 text-xs items-center">
-                <div className="flex flex-col">
-                  <label className="mb-1 text-slate-400">From date</label>
-                  <input
-                    type="date"
-                    className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500/40 focus:border-sky-400"
-                    value={fromDate}
-                    onChange={(e) => setFromDate(e.target.value)}
-                  />
-                </div>
-                <div className="flex flex-col">
-                  <label className="mb-1 text-slate-400">To date</label>
-                  <input
-                    type="date"
-                    className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500/40 focus:border-sky-400"
-                    value={toDate}
-                    onChange={(e) => setToDate(e.target.value)}
-                  />
-                </div>
-              </div>
+              ))}
             </div>
 
-            <p className="text-xs text-slate-500">
-              The dApp only displays receipts where your wallet is involved.
-              Other users&apos; receipts are hidden from this view.
-            </p>
+            <div className="flex items-center gap-3 w-full lg:w-auto">
+              <div className="flex items-center gap-2 bg-slate-950/50 px-3 py-2 rounded-xl border border-slate-800 w-full lg:w-auto">
+                <span className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">From</span>
+                <input
+                  type="date"
+                  className="bg-transparent text-xs text-slate-200 focus:outline-none w-full lg:w-auto"
+                  value={fromDate}
+                  onChange={(e) => setFromDate(e.target.value)}
+                />
+              </div>
+              <div className="flex items-center gap-2 bg-slate-950/50 px-3 py-2 rounded-xl border border-slate-800 w-full lg:w-auto">
+                <span className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">To</span>
+                <input
+                  type="date"
+                  className="bg-transparent text-xs text-slate-200 focus:outline-none w-full lg:w-auto"
+                  value={toDate}
+                  onChange={(e) => setToDate(e.target.value)}
+                />
+              </div>
+            </div>
           </div>
 
-          {/* RECEIPTS GALLERY */}
-          <div className="bg-[#050814] border border-slate-800 rounded-2xl p-4 shadow-[0_0_25px_rgba(15,23,42,0.9)] space-y-3">
-            <h2 className="text-sm font-semibold text-slate-50">
-              RECEIPTS GALLERY (last 6)
-            </h2>
+          {/* GALLERY GRID */}
+          <div className="space-y-4">
+             <div className="flex items-center justify-between px-1">
+                <h2 className="text-xs font-bold text-slate-500 uppercase tracking-widest">Recent Cards</h2>
+             </div>
 
             {isLoading ? (
-              <div className="py-6 text-sm text-slate-400">
-                Loading receipts...
-              </div>
+               <div className="py-12 text-center">
+                 <div className="inline-block w-6 h-6 border-2 border-sky-500 border-t-transparent rounded-full animate-spin mb-2"></div>
+                 <p className="text-xs text-slate-500">Syncing with Arc Testnet...</p>
+               </div>
             ) : fetchError ? (
-              <div className="py-6 text-sm text-red-300 bg-red-950/40 border border-red-500/40 rounded-md px-3">
+              <div className="p-4 text-sm text-red-300 bg-red-950/20 border border-red-500/30 rounded-xl">
                 {fetchError}
               </div>
             ) : galleryItems.length === 0 ? (
-              <div className="py-6 text-sm text-slate-400">
-                No receipts to display for this wallet.
+              <div className="py-12 text-center border border-dashed border-slate-800 rounded-2xl">
+                <p className="text-sm text-slate-500">No receipts found matching your criteria.</p>
               </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 pt-1">
-                {galleryItems.map((r) => (
-                  <Link key={r.id.toString()} href={`/receipt/${r.id.toString()}`}>
-                    <div className="relative rounded-xl bg-slate-900/80 border border-sky-500/60 shadow-[0_0_20px_rgba(56,189,248,0.5)] px-3 py-3 text-xs text-slate-100 hover:-translate-y-[1px] hover:shadow-[0_0_26px_rgba(56,189,248,0.8)] transition-transform duration-150 cursor-pointer">
-                      <div className="flex items-center justify_between mb-2">
-                        <div className="flex flex-col">
-                          <span className="text-[11px] text-slate-400">
-                            PAYMENT RECEIPT
-                          </span>
-                          <span className="text-[11px] text-slate-500">
-                            #{r.id.toString()}
-                          </span>
-                        </div>
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-900 border border-slate-600 text-slate-300">
-                          {categoryLabels[r.category] ??
-                            `Category #${r.category}`}
-                        </span>
-                      </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                {galleryItems.map((r) => {
+                   const isSent = addrLower && r.from.toLowerCase() === addrLower;
+                   const isSwap = r.sourceCurrency !== r.destinationCurrency;
+                   
+                   return (
+                    <Link key={r.id.toString()} href={`/receipt/${r.id.toString()}`}>
+                      <div className="group relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#0B1021] to-[#060914] border border-slate-800 hover:border-sky-500/40 transition-all duration-300 hover:shadow-[0_0_30px_-5px_rgba(14,165,233,0.15)] cursor-pointer">
+                        {/* Status Line */}
+                        <div className={`absolute top-0 left-0 w-1 h-full ${isSent ? 'bg-rose-500/50' : 'bg-emerald-500/50'}`} />
+                        
+                        <div className="p-5 space-y-4">
+                          <div className="flex justify-between items-start">
+                            <div>
+                                <span className="block text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-1">Receipt ID</span>
+                                <span className="text-lg font-mono text-slate-200">#{r.id.toString()}</span>
+                            </div>
+                            <div className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide border ${isSent ? 'bg-rose-950/30 border-rose-500/20 text-rose-200' : 'bg-emerald-950/30 border-emerald-500/20 text-emerald-200'}`}>
+                                {isSent ? 'Sent Out' : 'Received'}
+                            </div>
+                          </div>
 
-                      <div className="flex items-center justify-between mb-1">
-                        <div className="flex flex-col">
-                          <span className="text-[10px] text-slate-500">
-                            From
-                          </span>
-                          <span className="text-[11px] text-slate-200 truncate max-w-[120px]">
-                            {r.from}
-                          </span>
-                        </div>
-                        <div className="text-[10px] text-slate-500 px-1">→</div>
-                        <div className="flex flex-col items-end">
-                          <span className="text-[10px] text-slate-500">To</span>
-                          <span className="text-[11px] text-slate-200 truncate max-w-[120px]">
-                            {r.to}
-                          </span>
-                        </div>
-                      </div>
+                          <div className="flex items-center gap-3">
+                             <div className="flex-1 p-3 bg-slate-950/50 rounded-lg border border-slate-800/50 group-hover:bg-slate-900 transition-colors">
+                                <div className="text-[10px] text-slate-500 mb-1">Total Amount</div>
+                                <div className="text-base font-semibold text-white">{formatUsdc(r.amount)} <span className="text-xs font-normal text-slate-400">USDC</span></div>
+                             </div>
+                             {isSwap && (
+                                 <div className="flex flex-col items-center justify-center w-12 h-12 rounded-full bg-purple-900/10 border border-purple-500/20 text-purple-300">
+                                     <span className="text-[9px] font-bold">FX</span>
+                                     <span className="text-[9px]">Swap</span>
+                                 </div>
+                             )}
+                          </div>
 
-                      <div className="mt-2 flex items-center justify-between">
-                        <div className="flex flex-col">
-                          <span className="text-[10px] text-slate-500">
-                            Amount (USDC)
-                          </span>
-                          <span className="text-sm font-semibold text-slate-50">
-                            {formatUsdc(r.amount)} USDC
-                          </span>
-                        </div>
-                        <div className="flex flex-col items-end">
-                          <span className="text-[10px] text-slate-500">
-                            Payment route
-                          </span>
-                          <span className="text-[11px] text-slate-200">
-                            {r.corridor}
-                          </span>
+                          <div className="space-y-2 pt-2 border-t border-slate-800/50">
+                            <div className="flex justify-between text-xs">
+                                <span className="text-slate-500">Route</span>
+                                <span className="text-slate-300 font-mono">{r.corridor}</span>
+                            </div>
+                            <div className="flex justify-between text-xs">
+                                <span className="text-slate-500">Date</span>
+                                <span className="text-slate-300">{formatTimestamp(r.timestamp)}</span>
+                            </div>
+                          </div>
                         </div>
                       </div>
-
-                      <div className="mt-2 flex items-center justify-between text-[10px] text-slate-500">
-                        <span>{formatTimestamp(r.timestamp)}</span>
-                        <span>
-                          {r.sourceCurrency} → {r.destinationCurrency}
-                        </span>
-                      </div>
-                    </div>
-                  </Link>
-                ))}
+                    </Link>
+                  )
+                })}
               </div>
             )}
           </div>
 
-          {/* RECENT ACTIVITY TABLE */}
-          <div className="bg-[#050814] border border-slate-800 rounded-2xl p-4 shadow-[0_0_25px_rgba(15,23,42,0.9)] space-y-3">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-slate-50">
-                RECENT ACTIVITY
-              </h2>
-            </div>
-
-            {isLoading ? (
-              <div className="py-6 text-sm text-slate-400">
-                Loading receipts from chain...
-              </div>
-            ) : fetchError ? (
-              <div className="py-6 text-sm text-red-300 bg-red-950/40 border border-red-500/40 rounded-md px-3">
-                {fetchError}
-              </div>
-            ) : recentRows.length === 0 ? (
-              <div className="py-6 text-sm text-slate-400">
-                No receipts found for the selected filters.
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-xs text-left text-slate-200">
-                  <thead className="border-b border-slate-800 text-slate-400">
-                    <tr>
-                      <th className="py-2 pr-4 font-normal">Receipt</th>
-                      <th className="py-2 px-4 font-normal">Type</th>
-                      <th className="py-2 px-4 font-normal">Category</th>
-                      <th className="py-2 px-4 font-normal">Amount</th>
-                      <th className="py-2 px-4 font-normal">From</th>
-                      <th className="py-2 px-4 font-normal">To</th>
-                      <th className="py-2 px-4 font-normal">Timestamp</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {recentRows.map((r) => {
-                      const isSent =
-                        addrLower && r.from.toLowerCase() === addrLower;
-                      const typeLabel = isSent ? "Sent" : "Received";
-
-                      return (
-                        <tr
-                          key={r.id.toString()}
-                          className="border-b border-slate-800/60 hover:bg-slate-900/50 cursor-pointer"
-                          onClick={() => {
-                            window.location.href = `/receipt/${r.id.toString()}`;
-                          }}
-                        >
-                          <td className="py-2 pr-4 text-slate-300">
-                            #{r.id.toString()}
-                          </td>
-                          <td className="py-2 px-4">
-                            <span
-                              className={[
-                                "px-2 py-0.5 rounded-full text-[11px] border",
-                                isSent
-                                  ? "bg-emerald-900/40 border-emerald-500/60 text-emerald-100"
-                                  : "bg-sky-900/40 border-sky-500/60 text-sky-100",
-                              ].join(" ")}
-                            >
-                              {typeLabel}
-                            </span>
-                          </td>
-                          <td className="py-2 px-4 text-slate-300">
-                            {categoryLabels[r.category] ??
-                              `Category #${r.category}`}
-                          </td>
-                          <td className="py-2 px-4 text-slate-100 font-medium">
-                            {formatUsdc(r.amount)} USDC
-                          </td>
-                          <td className="py-2 px-4 text-slate-400 truncate max-w-[120px]">
-                            {r.from}
-                          </td>
-                          <td className="py-2 px-4 text-slate-400 truncate max-w-[120px]">
-                            {r.to}
-                          </td>
-                          <td className="py-2 px-4 text-slate-400">
-                            {formatTimestamp(r.timestamp)}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
+          {/* TABLE VIEW */}
+          <div className="bg-[#050814] border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+             <div className="px-6 py-4 border-b border-slate-800 bg-slate-900/20">
+                <h2 className="text-xs font-bold text-slate-500 uppercase tracking-widest">Full Transaction Log</h2>
+             </div>
+             
+             {recentRows.length > 0 && (
+                <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs text-slate-300">
+                        <thead className="bg-slate-950 text-slate-500 font-semibold uppercase tracking-wider">
+                            <tr>
+                                <th className="px-6 py-4">ID</th>
+                                <th className="px-6 py-4">Type</th>
+                                <th className="px-6 py-4">Amount</th>
+                                <th className="px-6 py-4">Route</th>
+                                <th className="px-6 py-4">Category</th>
+                                <th className="px-6 py-4">Counterparty</th>
+                                <th className="px-6 py-4">Time</th>
+                                <th className="px-6 py-4 text-right">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800">
+                            {recentRows.map((r) => {
+                                const isSent = addrLower && r.from.toLowerCase() === addrLower;
+                                const counterparty = isSent ? r.to : r.from;
+                                
+                                return (
+                                    <tr key={r.id.toString()} className="hover:bg-slate-900/40 transition-colors">
+                                        <td className="px-6 py-4 font-mono text-slate-500">#{r.id.toString()}</td>
+                                        <td className="px-6 py-4">
+                                            <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium ${isSent ? 'text-rose-300 bg-rose-950/30' : 'text-emerald-300 bg-emerald-950/30'}`}>
+                                                {isSent ? 'OUT' : 'IN'}
+                                            </span>
+                                        </td>
+                                        <td className="px-6 py-4 font-medium text-slate-100">{formatUsdc(r.amount)}</td>
+                                        <td className="px-6 py-4 font-mono text-[10px] text-slate-400">{r.corridor}</td>
+                                        <td className="px-6 py-4 text-slate-400">{categoryLabels[r.category] ?? 'Other'}</td>
+                                        <td className="px-6 py-4 font-mono text-slate-500 truncate max-w-[100px]">{counterparty.substring(0,6)}...{counterparty.substring(38)}</td>
+                                        <td className="px-6 py-4 text-slate-500">{new Date(Number(r.timestamp) * 1000).toLocaleDateString()}</td>
+                                        <td className="px-6 py-4 text-right">
+                                            <Link href={`/receipt/${r.id.toString()}`} className="text-sky-400 hover:text-sky-300 hover:underline">
+                                                View
+                                            </Link>
+                                        </td>
+                                    </tr>
+                                )
+                            })}
+                        </tbody>
+                    </table>
+                </div>
+             )}
           </div>
         </>
       )}

@@ -1,85 +1,86 @@
-import { Abi } from "viem";
+export const ARC_RECEIPTS_ADDRESS = "0x5d4821a82df5dEBBc518f9f9FFCcA4fA3c06629F";
 
-export const ARC_RECEIPTS_ADDRESS =
-  "0xC45862084da60048624CAA1647D141bB9342307a" as const;
-
-export const ARC_RECEIPTS_ABI: Abi = [
+export const ARC_RECEIPTS_ABI = [
   {
-    type: "function",
-    name: "payWithReceipt",
+    inputs: [],
     stateMutability: "nonpayable",
+    type: "constructor",
+  },
+  {
+    anonymous: false,
     inputs: [
-      { name: "to", type: "address" },
-      { name: "amount", type: "uint256" },
-      { name: "category", type: "uint8" },
-      { name: "reason", type: "string" },
-      { name: "sourceCurrency", type: "string" },
-      { name: "destinationCurrency", type: "string" },
-      { name: "corridor", type: "string" },
+      { indexed: true, internalType: "uint256", name: "id", type: "uint256" },
+      { indexed: true, internalType: "address", name: "from", type: "address" },
+      { indexed: true, internalType: "address", name: "to", type: "address" },
+      { indexed: false, internalType: "address", name: "token", type: "address" },
+      { indexed: false, internalType: "uint256", name: "amount", type: "uint256" },
+      { indexed: false, internalType: "string", name: "corridor", type: "string" },
+      { indexed: false, internalType: "uint256", name: "timestamp", type: "uint256" },
     ],
-    // نقدر نترك الـ output كما هو، حتى لو ما نستخدمه في الواجهة
-    outputs: [{ name: "receiptId", type: "uint256" }],
+    name: "ReceiptCreated",
+    type: "event",
   },
   {
-    type: "function",
+    inputs: [{ internalType: "uint256", name: "id", type: "uint256" }],
     name: "getReceipt",
-    stateMutability: "view",
-    inputs: [{ name: "receiptId", type: "uint256" }],
     outputs: [
       {
+        components: [
+          { internalType: "uint256", name: "id", type: "uint256" },
+          { internalType: "address", name: "from", type: "address" },
+          { internalType: "address", name: "to", type: "address" },
+          { internalType: "address", name: "token", type: "address" },
+          { internalType: "uint256", name: "amount", type: "uint256" },
+          {
+            components: [
+              { internalType: "uint8", name: "category", type: "uint8" },
+              { internalType: "string", name: "reason", type: "string" },
+              { internalType: "string", name: "sourceCurrency", type: "string" },
+              { internalType: "string", name: "destinationCurrency", type: "string" },
+              { internalType: "string", name: "corridor", type: "string" },
+            ],
+            internalType: "struct ArcMultiTokenReceipts.ReceiptMetadata",
+            name: "meta",
+            type: "tuple",
+          },
+          { internalType: "uint256", name: "timestamp", type: "uint256" },
+        ],
+        internalType: "struct ArcMultiTokenReceipts.Receipt",
+        name: "",
         type: "tuple",
-        components: [
-          { name: "id", type: "uint256" },
-          { name: "from", type: "address" },
-          { name: "to", type: "address" },
-          { name: "amount", type: "uint256" },
-          { name: "category", type: "uint8" },
-          { name: "reason", type: "string" },
-          { name: "sourceCurrency", type: "string" },
-          { name: "destinationCurrency", type: "string" },
-          { name: "corridor", type: "string" },
-          { name: "timestamp", type: "uint256" },
-        ],
       },
     ],
+    stateMutability: "view",
+    type: "function",
   },
   {
-    type: "function",
+    inputs: [],
     name: "nextReceiptId",
+    outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
     stateMutability: "view",
-    inputs: [],
-    outputs: [{ name: "", type: "uint256" }],
-  },
-  // 👇 دالة ترجع IDs الخاصة بالمحفظة المتصلة
-  {
     type: "function",
-    name: "getMyReceiptIds",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [{ name: "", type: "uint256[]" }],
   },
-  // 👇 دالة ترجع كل الإيصالات (struct[]) للمحفظة المتصلة
   {
-    type: "function",
-    name: "getMyReceipts",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [
+    inputs: [
+      { internalType: "address", name: "_token", type: "address" },
+      { internalType: "address", name: "_to", type: "address" },
+      { internalType: "uint256", name: "_amount", type: "uint256" },
       {
-        type: "tuple[]",
         components: [
-          { name: "id", type: "uint256" },
-          { name: "from", type: "address" },
-          { name: "to", type: "address" },
-          { name: "amount", type: "uint256" },
-          { name: "category", type: "uint8" },
-          { name: "reason", type: "string" },
-          { name: "sourceCurrency", type: "string" },
-          { name: "destinationCurrency", type: "string" },
-          { name: "corridor", type: "string" },
-          { name: "timestamp", type: "uint256" },
+          { internalType: "uint8", name: "category", type: "uint8" },
+          { internalType: "string", name: "reason", type: "string" },
+          { internalType: "string", name: "sourceCurrency", type: "string" },
+          { internalType: "string", name: "destinationCurrency", type: "string" },
+          { internalType: "string", name: "corridor", type: "string" },
         ],
+        internalType: "struct ArcMultiTokenReceipts.ReceiptMetadata",
+        name: "_meta",
+        type: "tuple",
       },
     ],
+    name: "payWithReceipt",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
   },
-];
+] as const;

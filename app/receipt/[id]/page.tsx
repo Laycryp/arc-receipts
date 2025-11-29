@@ -1,7 +1,9 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
-import { useReadContract } from "wagmi";
+import { useReadContract, usePublicClient } from "wagmi";
+import { parseAbiItem } from "viem";
 import {
   ARC_RECEIPTS_ADDRESS,
   ARC_RECEIPTS_ABI,
@@ -28,7 +30,10 @@ function formatUsdc(amount: bigint): string {
 function formatTimestamp(ts: bigint): string {
   const ms = Number(ts) * 1000;
   const d = new Date(ms);
-  return d.toLocaleString();
+  return d.toLocaleString(undefined, {
+    dateStyle: "full",
+    timeStyle: "short",
+  });
 }
 
 export default function ReceiptPage() {
@@ -36,10 +41,14 @@ export default function ReceiptPage() {
   const searchParams = useSearchParams();
   const id = params?.id;
   const receiptId = id ? BigInt(id) : BigInt(0);
+  
+  const publicClient = usePublicClient();
 
-  // 🔹 نحاول نقرأ tx من كويري سترنغ: /receipt/5?tx=0x123...
-  const txHash = searchParams.get("tx") || null;
+  // 1. Check URL first for ?tx=...
+  const [txHash, setTxHash] = useState<string | null>(searchParams.get("tx"));
+  const [isFetchingHash, setIsFetchingHash] = useState(false);
 
+  // 2. Load Receipt Data
   const { data, isLoading, error } = useReadContract({
     address: ARC_RECEIPTS_ADDRESS,
     abi: ARC_RECEIPTS_ABI,
@@ -50,167 +59,160 @@ export default function ReceiptPage() {
     },
   } as any);
 
-  if (!id) {
-    return (
-      <section className="min-h-[50vh] flex items-center justify-center text-sm text-slate-400">
-        No receipt id provided.
-      </section>
-    );
-  }
+  // 3. EFFECT: Fetch Log if TX Hash is missing
+  useEffect(() => {
+    if (txHash || !receiptId || !publicClient) return;
 
-  if (isLoading) {
-    return (
-      <section className="min-h-[50vh] flex items-center justify-center text-sm text-slate-400">
-        Loading receipt #{id} from chain...
-      </section>
-    );
-  }
+    // If we don't have the hash in URL, let's find it from logs
+    async function fetchTxHashFromLogs() {
+      setIsFetchingHash(true);
+      try {
+        const logs = await publicClient.getLogs({
+            address: ARC_RECEIPTS_ADDRESS,
+            event: parseAbiItem(
+                "event ReceiptCreated(uint256 indexed id, address indexed from, address indexed to, address token, uint256 amount, string corridor, uint256 timestamp)"
+            ),
+            args: {
+                id: receiptId
+            },
+            fromBlock: 'earliest' // In production, optimize this range
+        });
 
-  if (error) {
-    return (
-      <section className="min-h-[50vh] flex items-center justify-center">
-        <div className="bg-red-950/40 border border-red-500/50 rounded-md px-4 py-3 text-sm text-red-200 max-w-md">
-          Failed to load receipt #{id}: {error.message}
-        </div>
-      </section>
-    );
-  }
+        if (logs.length > 0) {
+            setTxHash(logs[0].transactionHash);
+        }
+      } catch (err) {
+        console.error("Failed to fetch tx hash from logs", err);
+      } finally {
+        setIsFetchingHash(false);
+      }
+    }
 
-  if (!data) {
-    return (
-      <section className="min-h-[50vh] flex items-center justify-center text-sm text-slate-400">
-        Receipt #{id} not found or empty.
-      </section>
-    );
-  }
+    fetchTxHashFromLogs();
+  }, [receiptId, txHash, publicClient]);
 
-  const receipt = data as any;
-  const receiptStruct = {
-    id: receipt.id ?? receipt[0],
-    from: receipt.from ?? receipt[1],
-    to: receipt.to ?? receipt[2],
-    amount: receipt.amount ?? receipt[3],
-    category: Number(receipt.category ?? receipt[4]),
-    reason: receipt.reason ?? receipt[5],
-    sourceCurrency: receipt.sourceCurrency ?? receipt[6],
-    destinationCurrency: receipt.destinationCurrency ?? receipt[7],
-    corridor: receipt.corridor ?? receipt[8],
-    timestamp: receipt.timestamp ?? receipt[9],
+
+  if (!id) return <div className="p-10 text-center text-slate-500">Invalid receipt ID</div>;
+  if (isLoading) return <div className="p-10 text-center text-sky-500 animate-pulse">Verifying receipt on-chain...</div>;
+  if (error || !data) return <div className="p-10 text-center text-red-400">Receipt not found.</div>;
+
+  const rawData = data as any;
+  const meta = rawData.meta || rawData[5];
+  
+  const receipt = {
+    id: rawData.id ?? rawData[0],
+    from: rawData.from ?? rawData[1],
+    to: rawData.to ?? rawData[2],
+    amount: rawData.amount ?? rawData[4],
+    token: rawData.token ?? rawData[3],
+    category: typeof meta.category !== 'undefined' ? Number(meta.category) : Number(meta[0]),
+    reason: meta.reason ?? meta[1],
+    sourceCurrency: meta.sourceCurrency ?? meta[2],
+    destinationCurrency: meta.destinationCurrency ?? meta[3],
+    corridor: meta.corridor ?? meta[4],
+    timestamp: rawData.timestamp ?? rawData[6],
   };
 
-  // 🔹 لو فيه txHash نستخدم رابط المعاملة، غير كذا نرجع لرابط العقد كـ fallback
-  const explorerLink = txHash
+  // Determine Link
+  const explorerLink = txHash 
     ? `https://testnet.arcscan.app/tx/${txHash}`
     : `https://testnet.arcscan.app/address/${ARC_RECEIPTS_ADDRESS}`;
-
-  const explorerLabel = txHash ? "Transaction" : "Contract";
+  
+  // Label changes if we found the hash
+  const linkLabel = (txHash || isFetchingHash) ? "View Transaction" : "View Contract";
 
   return (
-    <section className="space-y-6">
-      <header>
-        <h1 className="text-2xl font-semibold mb-1 text-slate-50">
-          Receipt #{receiptStruct.id.toString()}
-        </h1>
-        <p className="text-sm text-slate-400">
-          Onchain payment receipt generated by the PaymentWithReceipt
-          contract.
-        </p>
-      </header>
+    <section className="max-w-3xl mx-auto py-8">
+      <div className="mb-6 text-center">
+        <h1 className="text-2xl font-bold text-white mb-2">Payment Receipt</h1>
+        <p className="text-slate-400 text-sm">Official immutable record on Arc Testnet</p>
+      </div>
 
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3 shadow-sm">
-        <div className="flex justify-between items-center">
-          <h2 className="text-lg font-semibold text-slate-50">
-            Payment details
-          </h2>
-          <span className="text-xs px-2 py-1 rounded-full bg-indigo-950/60 text-indigo-200 border border-indigo-500/40">
-            {categoryLabels[receiptStruct.category] ??
-              `Category #${receiptStruct.category}`}
-          </span>
+      <div className="relative bg-[#0F1423] border border-slate-700/50 rounded-xl overflow-hidden shadow-2xl">
+        <div className="h-2 w-full bg-gradient-to-r from-sky-500 via-purple-500 to-sky-500"></div>
+
+        <div className="p-8 space-y-8">
+          
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-6 border-b border-slate-800 border-dashed">
+             <div>
+                <span className="text-[10px] uppercase text-slate-500 font-bold tracking-widest">Receipt ID</span>
+                <div className="text-3xl font-mono text-white">#{receipt.id.toString()}</div>
+             </div>
+             <div className="flex flex-col items-end">
+                <span className="px-3 py-1 rounded-full bg-sky-900/30 border border-sky-500/30 text-sky-200 text-xs font-medium">
+                    {categoryLabels[receipt.category] || "Payment"}
+                </span>
+                <span className="text-xs text-slate-500 mt-2">{formatTimestamp(receipt.timestamp)}</span>
+             </div>
+          </div>
+
+          <div className="text-center py-4 bg-slate-900/50 rounded-xl border border-slate-800/50">
+             <span className="block text-slate-400 text-xs uppercase tracking-wider mb-1">Total Amount Paid</span>
+             <div className="text-4xl font-bold text-white tracking-tight">
+                {formatUsdc(receipt.amount)} <span className="text-lg text-slate-500 font-normal">USDC</span>
+             </div>
+             {receipt.sourceCurrency !== receipt.destinationCurrency && (
+                <div className="mt-2 inline-block px-2 py-0.5 rounded text-[10px] bg-purple-900/30 text-purple-300 border border-purple-500/20">
+                    FX Swap: {receipt.sourceCurrency} ➔ {receipt.destinationCurrency}
+                </div>
+             )}
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+             <div className="space-y-4">
+                <div className="p-3 rounded-lg bg-slate-900/30 border border-slate-800">
+                    <span className="block text-[10px] uppercase text-slate-500 font-bold mb-1">From (Sender)</span>
+                    <div className="font-mono text-xs text-slate-300 break-all">{receipt.from}</div>
+                </div>
+                <div className="p-3 rounded-lg bg-slate-900/30 border border-slate-800">
+                    <span className="block text-[10px] uppercase text-slate-500 font-bold mb-1">To (Recipient)</span>
+                    <div className="font-mono text-xs text-slate-300 break-all">{receipt.to}</div>
+                </div>
+             </div>
+
+             <div className="space-y-4">
+                <div>
+                   <span className="block text-[10px] uppercase text-slate-500 font-bold mb-1">Payment Route</span>
+                   <div className="text-sm text-slate-200 font-mono border-b border-slate-800 pb-1">{receipt.corridor}</div>
+                </div>
+                <div>
+                   <span className="block text-[10px] uppercase text-slate-500 font-bold mb-1">Description / Note</span>
+                   <div className="text-sm text-slate-300 italic">"{receipt.reason || 'No description provided'}"</div>
+                </div>
+             </div>
+          </div>
+
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-          <div>
-            <div className="text-slate-400 text-xs mb-1">From</div>
-            <div className="break-all text-slate-100">
-              {receiptStruct.from}
-            </div>
-          </div>
-          <div>
-            <div className="text-slate-400 text-xs mb-1">To</div>
-            <div className="break-all text-slate-100">
-              {receiptStruct.to}
-            </div>
-          </div>
-          <div>
-            <div className="text-slate-400 text-xs mb-1">Amount (USDC)</div>
-            <div className="text-slate-50 font-medium">
-              {formatUsdc(receiptStruct.amount)} USDC
-            </div>
-          </div>
-          <div>
-            <div className="text-slate-400 text-xs mb-1">Timestamp</div>
-            <div className="text-slate-100">
-              {formatTimestamp(receiptStruct.timestamp)}
-            </div>
-          </div>
+        <div className="bg-[#0A0D18] p-4 flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-slate-800">
+           <a 
+             href={explorerLink}
+             target="_blank"
+             rel="noreferrer"
+             className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${txHash ? 'bg-sky-600 hover:bg-sky-500 text-white shadow-lg shadow-sky-900/20' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'}`}
+           >
+              {isFetchingHash && !txHash ? (
+                  <span className="inline-block w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin mr-2"></span>
+              ) : null}
+              <span>{linkLabel}</span>
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+           </a>
+
+           <button
+             onClick={() => navigator.clipboard.writeText(window.location.href)}
+             className="text-xs text-slate-500 hover:text-sky-400 transition-colors flex items-center gap-1"
+           >
+             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"></path></svg>
+             Copy Receipt Link
+           </button>
         </div>
+      </div>
 
-        <div className="border-t border-slate-800 pt-3 mt-2 text-sm space-y-2">
-          <div>
-            <div className="text-slate-400 text-xs mb-1">
-              Note / description
-            </div>
-            <div className="text-slate-100">{receiptStruct.reason}</div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
-            <div>
-              <div className="text-slate-400 text-xs mb-1">
-                Token type from
-              </div>
-              <div className="text-slate-100">
-                {receiptStruct.sourceCurrency}
-              </div>
-            </div>
-            <div>
-              <div className="text-slate-400 text-xs mb-1">
-                Token type to
-              </div>
-              <div className="text-slate-100">
-                {receiptStruct.destinationCurrency}
-              </div>
-            </div>
-            <div>
-              <div className="text-slate-400 text-xs mb-1">Payment route</div>
-              <div className="text-slate-100">{receiptStruct.corridor}</div>
-            </div>
-          </div>
-        </div>
-
-        <div className="border-t border-slate-800 pt-3 mt-3 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
-          <div className="text-slate-400">
-            {explorerLabel}:{" "}
-            <a
-              href={explorerLink}
-              target="_blank"
-              rel="noreferrer"
-              className="underline"
-            >
-              View on ArcScan
-            </a>
-          </div>
-
-          <button
-            type="button"
-            onClick={() =>
-              typeof window !== "undefined" &&
-              navigator.clipboard.writeText(window.location.href)
-            }
-            className="px-3 py-1 rounded-md bg-slate-50 text-slate-950 hover:bg-slate-200"
-          >
-            Copy receipt link
-          </button>
-        </div>
+      <div className="mt-6 text-center">
+         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-900/20 border border-emerald-500/20 text-emerald-400 text-[10px] uppercase tracking-wider font-bold">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+            Verified On-Chain
+         </div>
       </div>
     </section>
   );
