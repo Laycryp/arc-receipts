@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState, FormEvent, useEffect } from "react";
+import { useState, FormEvent, useEffect, Suspense } from "react"; // ✅ إضافة Suspense
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   useAccount,
@@ -11,13 +11,12 @@ import {
   useReadContract,
 } from "wagmi";
 
-// ✅ التعديل الجذري: استيراد المكون المحلي الذي أنشأناه ديناميكياً
 import dynamic from "next/dynamic";
 
 const CrossmintButton = dynamic(
   () => import("../components/CrossmintButton"), 
   {
-    ssr: false, // تعطيل الريندر على السيرفر
+    ssr: false, 
     loading: () => (
       <div className="animate-pulse bg-emerald-900/30 h-12 w-full rounded-md flex items-center justify-center text-emerald-500 text-xs">
         Loading Secure Checkout...
@@ -32,10 +31,7 @@ import {
 } from "../../lib/arcReceiptsContract";
 import { ARC_USDC_ADDRESS, ARC_USDC_ABI } from "../../lib/usdcToken";
 
-// ============================================================================
-// العقد الجديد للروتر
 const ARC_FX_ROUTER_ADDRESS = "0xAe6147ce9Fc4624B01C79EEeFd7315294CFEE755";
-// ============================================================================
 
 const SUPPORTED_TARGET_TOKENS = [
   { 
@@ -130,7 +126,8 @@ function formatTimestamp(ts: bigint): string {
   });
 }
 
-export default function CreateReceiptPage() {
+// 1. قمنا بتغيير اسم الدالة الأصلية لتصبح مكوناً داخلياً
+function CreateReceiptContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { address, isConnected } = useAccount();
@@ -147,7 +144,6 @@ export default function CreateReceiptPage() {
   const [corridor, setCorridor] = useState("USD-USD");
   const [targetTokenAddress, setTargetTokenAddress] = useState(SUPPORTED_TARGET_TOKENS[0].address);
 
-  // Card Inputs kept for internal logic/validation if needed
   const [cardNumber, setCardNumber] = useState("");
   const [cardExpiry, setCardExpiry] = useState("");
   const [cardCvc, setCardCvc] = useState("");
@@ -200,7 +196,6 @@ export default function CreateReceiptPage() {
       ? ((allowanceRouter as bigint | undefined) ?? BigInt(0))
       : ((allowanceDirect as bigint | undefined) ?? BigInt(0));
 
-  // --- Last Receipt Logic ---
   const [lastMyReceipt, setLastMyReceipt] = useState<Receipt | null>(null);
   const [lastMyReceiptLoading, setLastMyReceiptLoading] = useState(false);
   const [lastMyReceiptError, setLastMyReceiptError] = useState<string | null>(null);
@@ -282,7 +277,6 @@ export default function CreateReceiptPage() {
     loadLastMyReceipt();
     return () => { cancelled = true; };
   }, [publicClient, isConnected, address]);
-  // -------------------------------------
 
   const {
     data: payTxHash,
@@ -343,7 +337,6 @@ export default function CreateReceiptPage() {
     setFormError(null);
     setSuccessMsg(null);
 
-    // Common Validation
     if (!isConnected || !address) {
       setFormError("Please connect your wallet first.");
       return;
@@ -367,10 +360,8 @@ export default function CreateReceiptPage() {
       toAddress = to as `0x${string}`;
     }
 
-    // --- CARD PAYMENT (Handled by Button) ---
     if (paymentMode === "card") return; 
 
-    // --- ON-CHAIN PAYMENTS (Direct & Swap) ---
     if (!publicClient) {
       setFormError("Public client is not ready.");
       return;
@@ -614,14 +605,12 @@ export default function CreateReceiptPage() {
               </div>
             </div>
 
-            {/* ✅ Crossmint UI Section (Now using Wrapper Component) */}
             {paymentMode === "card" && (
                 <div className="bg-emerald-950/20 border border-emerald-500/30 rounded-lg p-4 space-y-3 flex flex-col items-center text-center">
                     <div className="text-xs text-emerald-400 font-medium uppercase tracking-wider mb-2">
                         Powered by Crossmint
                     </div>
                     
-                    {/* ✅ استخدام المكون الديناميكي بدلاً من المكتبة مباشرة */}
                     <CrossmintButton
                         clientId="YOUR_CROSSMINT_CLIENT_ID_HERE"
                         mintConfig={{
@@ -767,5 +756,14 @@ export default function CreateReceiptPage() {
         )}
       </div>
     </section>
+  );
+}
+
+// 2. هذا هو التصدير الافتراضي الجديد الذي يغلف كل شيء بـ Suspense
+export default function CreateReceiptPage() {
+  return (
+    <Suspense fallback={<div className="p-10 text-center text-slate-500">Loading form...</div>}>
+      <CreateReceiptContent />
+    </Suspense>
   );
 }
