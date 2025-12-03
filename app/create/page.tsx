@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState, FormEvent, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   useAccount,
   usePublicClient,
@@ -10,6 +10,22 @@ import {
   useWaitForTransactionReceipt,
   useReadContract,
 } from "wagmi";
+
+// ✅ التعديل الجذري: استيراد المكون المحلي الذي أنشأناه ديناميكياً
+import dynamic from "next/dynamic";
+
+const CrossmintButton = dynamic(
+  () => import("../components/CrossmintButton"), 
+  {
+    ssr: false, // تعطيل الريندر على السيرفر
+    loading: () => (
+      <div className="animate-pulse bg-emerald-900/30 h-12 w-full rounded-md flex items-center justify-center text-emerald-500 text-xs">
+        Loading Secure Checkout...
+      </div>
+    ),
+  }
+);
+
 import {
   ARC_RECEIPTS_ADDRESS,
   ARC_RECEIPTS_ABI,
@@ -17,7 +33,7 @@ import {
 import { ARC_USDC_ADDRESS, ARC_USDC_ABI } from "../../lib/usdcToken";
 
 // ============================================================================
-// العقد الجديد للروتر (Deployed Router)
+// العقد الجديد للروتر
 const ARC_FX_ROUTER_ADDRESS = "0xAe6147ce9Fc4624B01C79EEeFd7315294CFEE755";
 // ============================================================================
 
@@ -116,10 +132,12 @@ function formatTimestamp(ts: bigint): string {
 
 export default function CreateReceiptPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { address, isConnected } = useAccount();
   const publicClient = usePublicClient();
 
-  const [paymentMode, setPaymentMode] = useState<"direct" | "swap">("direct");
+  const [paymentMode, setPaymentMode] = useState<"direct" | "swap" | "card">("direct");
+
   const [to, setTo] = useState("");
   const [amount, setAmount] = useState(""); 
   const [category, setCategory] = useState<number>(2);
@@ -129,9 +147,31 @@ export default function CreateReceiptPage() {
   const [corridor, setCorridor] = useState("USD-USD");
   const [targetTokenAddress, setTargetTokenAddress] = useState(SUPPORTED_TARGET_TOKENS[0].address);
 
+  // Card Inputs kept for internal logic/validation if needed
+  const [cardNumber, setCardNumber] = useState("");
+  const [cardExpiry, setCardExpiry] = useState("");
+  const [cardCvc, setCardCvc] = useState("");
+
   const [formError, setFormError] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [expectedReceiptId, setExpectedReceiptId] = useState<string | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [isSimulatingCard, setIsSimulatingCard] = useState(false);
+
+  useEffect(() => {
+    const paramTo = searchParams.get("to");
+    const paramAmount = searchParams.get("amount");
+    const paramReason = searchParams.get("reason");
+    const paramMode = searchParams.get("mode");
+
+    if (paramTo || paramAmount || paramReason) {
+       setIsFormOpen(true);
+       if (paramTo) setTo(paramTo);
+       if (paramAmount) setAmount(paramAmount);
+       if (paramReason) setReason(paramReason);
+       if (paramMode === "card") setPaymentMode("card");
+    }
+  }, [searchParams]);
 
   const {
     data: allowanceDirect,
@@ -274,22 +314,47 @@ export default function CreateReceiptPage() {
         setSourceCurrency("USDC");
         const token = SUPPORTED_TARGET_TOKENS.find(t => t.address === targetTokenAddress);
         setDestinationCurrency(token ? token.symbol : "EURC");
+    } else if (paymentMode === "card") {
+        setSourceCurrency("USD (Card)");
+        setDestinationCurrency("USDC");
     } else {
         setSourceCurrency("USD");
         setDestinationCurrency("USD");
     }
   }, [paymentMode, targetTokenAddress]);
 
+  const handleCopyPaymentLink = () => {
+    if (typeof window === "undefined") return;
+    const baseUrl = window.location.origin + window.location.pathname;
+    const params = new URLSearchParams();
+    if (to) params.set("to", to);
+    if (amount) params.set("amount", amount);
+    if (reason) params.set("reason", reason);
+    if (paymentMode === "card") params.set("mode", "card");
+    
+    const link = `${baseUrl}?${params.toString()}`;
+    navigator.clipboard.writeText(link);
+    setSuccessMsg("Link copied! Share it to request payment.");
+    setTimeout(() => setSuccessMsg(null), 3000);
+  };
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setFormError(null);
+    setSuccessMsg(null);
 
+    // Common Validation
     if (!isConnected || !address) {
       setFormError("Please connect your wallet first.");
       return;
     }
-    if (!publicClient) {
-      setFormError("Public client is not ready.");
+    
+    let usdcAmount: bigint;
+    try {
+      usdcAmount = parseUsdcAmount(amount);
+      if (usdcAmount <= BigInt(0)) throw new Error("Amount must be > 0.");
+    } catch (err: any) {
+      setFormError(err.message || "Invalid amount.");
       return;
     }
 
@@ -302,22 +367,18 @@ export default function CreateReceiptPage() {
       toAddress = to as `0x${string}`;
     }
 
-    let usdcAmount: bigint;
-    try {
-      usdcAmount = parseUsdcAmount(amount);
-      if (usdcAmount <= BigInt(0)) throw new Error("Amount must be > 0.");
-    } catch (err: any) {
-      setFormError(err.message || "Invalid amount.");
+    // --- CARD PAYMENT (Handled by Button) ---
+    if (paymentMode === "card") return; 
+
+    // --- ON-CHAIN PAYMENTS (Direct & Swap) ---
+    if (!publicClient) {
+      setFormError("Public client is not ready.");
       return;
     }
 
     if (paymentMode === "swap") {
       if (!ARC_FX_ROUTER_ADDRESS) {
         setFormError("Router address not configured.");
-        return;
-      }
-      if (!targetTokenAddress || !targetTokenAddress.startsWith("0x")) {
-        setFormError("Please select a target token.");
         return;
       }
     }
@@ -389,9 +450,8 @@ export default function CreateReceiptPage() {
     }
   }
 
-  const isPaySubmitting = isPayPending || isPayConfirming;
+  const isPaySubmitting = isPayPending || isPayConfirming || isSimulatingCard;
 
-  // إعداد العرض للبطاقة
   let cardContent = null;
   if (lastMyReceipt) {
     const isSent = address && lastMyReceipt.from.toLowerCase() === address.toLowerCase();
@@ -400,9 +460,7 @@ export default function CreateReceiptPage() {
     cardContent = (
       <Link href={`/receipt/${lastMyReceipt.id.toString()}`}>
         <div className="group relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#0B1021] to-[#060914] border border-slate-800 hover:border-sky-500/40 transition-all duration-300 hover:shadow-[0_0_30px_-5px_rgba(14,165,233,0.15)] cursor-pointer">
-          {/* Status Line */}
           <div className={`absolute top-0 left-0 w-1 h-full ${isSent ? 'bg-rose-500/50' : 'bg-emerald-500/50'}`} />
-          
           <div className="p-5 space-y-4">
             <div className="flex justify-between items-start">
               <div>
@@ -480,7 +538,6 @@ export default function CreateReceiptPage() {
             </button>
           </div>
 
-          {/* Payment Mode Toggles */}
           <div className="flex bg-slate-900 rounded-lg p-1 mb-4 border border-slate-800">
             <button
               type="button"
@@ -491,7 +548,7 @@ export default function CreateReceiptPage() {
                   : "text-slate-400 hover:text-slate-200"
               }`}
             >
-              Direct Pay (USDC)
+              Direct (USDC)
             </button>
             <button
               type="button"
@@ -502,15 +559,34 @@ export default function CreateReceiptPage() {
                   : "text-slate-400 hover:text-slate-200"
               }`}
             >
-              FX Swap & Pay
+              FX Swap
+            </button>
+            <button
+              type="button"
+              onClick={() => setPaymentMode("card")}
+              className={`flex-1 py-2 text-sm font-medium rounded-md transition-all flex items-center justify-center gap-1 ${
+                paymentMode === "card"
+                  ? "bg-emerald-600 text-white shadow-md"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              <span>💳</span> Card (Fiat)
             </button>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4 bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+            
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm mb-1 text-slate-200">
-                  Recipient (optional)
+                <label className="block text-sm mb-1 text-slate-200 flex justify-between items-center">
+                   <span>Recipient (optional)</span>
+                   <button 
+                     type="button"
+                     onClick={handleCopyPaymentLink}
+                     className="text-[10px] text-sky-400 hover:text-sky-300 hover:underline"
+                   >
+                     🔗 Copy Request Link
+                   </button>
                 </label>
                 <input
                   className="w-full rounded-md bg-slate-950 border border-slate-700 px-3 py-2 text-sm text-slate-50 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500/50"
@@ -522,7 +598,7 @@ export default function CreateReceiptPage() {
 
               <div>
                 <label className="block text-sm mb-1 text-slate-200">
-                  Amount (USDC) *
+                  Amount {paymentMode === 'card' ? '(USD)' : '(USDC)'} *
                 </label>
                 <input
                   className="w-full rounded-md bg-slate-950 border border-slate-700 px-3 py-2 text-sm text-slate-50 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500/50"
@@ -530,11 +606,37 @@ export default function CreateReceiptPage() {
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
                 />
-                <p className="text-[11px] text-slate-500 mt-1">
-                  Allowance: {allowanceValue ? `${formatUsdc(allowanceValue)} USDC` : "0"}
-                </p>
+                {paymentMode !== 'card' && (
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Allowance: {allowanceValue ? `${formatUsdc(allowanceValue)} USDC` : "0"}
+                  </p>
+                )}
               </div>
             </div>
+
+            {/* ✅ Crossmint UI Section (Now using Wrapper Component) */}
+            {paymentMode === "card" && (
+                <div className="bg-emerald-950/20 border border-emerald-500/30 rounded-lg p-4 space-y-3 flex flex-col items-center text-center">
+                    <div className="text-xs text-emerald-400 font-medium uppercase tracking-wider mb-2">
+                        Powered by Crossmint
+                    </div>
+                    
+                    {/* ✅ استخدام المكون الديناميكي بدلاً من المكتبة مباشرة */}
+                    <CrossmintButton
+                        clientId="YOUR_CROSSMINT_CLIENT_ID_HERE"
+                        mintConfig={{
+                            type: "erc-20",
+                            totalPrice: amount || "10", 
+                        }}
+                        environment="staging"
+                        className="w-full"
+                    />
+
+                    <p className="text-[10px] text-emerald-300/60 mt-1">
+                       Secure checkout window will open. Supports Visa, Mastercard, and Apple Pay.
+                    </p>
+                </div>
+            )}
 
             {paymentMode === "swap" && (
               <div className="bg-purple-900/20 border border-purple-500/30 rounded-lg p-3">
@@ -585,19 +687,17 @@ export default function CreateReceiptPage() {
               <div>
                 <label className="block text-sm mb-1 text-slate-200">Token type from</label>
                 <input
-                  className="w-full rounded-md bg-slate-950 border border-slate-700 px-3 py-2 text-sm text-slate-50 placeholder:text-slate-500"
+                  className="w-full rounded-md bg-slate-950 border border-slate-700 px-3 py-2 text-sm text-slate-50 placeholder:text-slate-500 opacity-70"
                   value={sourceCurrency}
-                  onChange={(e) => setSourceCurrency(e.target.value)}
-                  readOnly={paymentMode === "swap"} 
+                  readOnly 
                 />
               </div>
               <div>
                 <label className="block text-sm mb-1 text-slate-200">Token type to</label>
                 <input
-                  className="w-full rounded-md bg-slate-950 border border-slate-700 px-3 py-2 text-sm text-slate-50 placeholder:text-slate-500"
+                  className="w-full rounded-md bg-slate-950 border border-slate-700 px-3 py-2 text-sm text-slate-50 placeholder:text-slate-500 opacity-70"
                   value={destinationCurrency}
-                  onChange={(e) => setDestinationCurrency(e.target.value)}
-                  readOnly={paymentMode === "swap"} 
+                  readOnly 
                 />
               </div>
               <div>
@@ -620,29 +720,36 @@ export default function CreateReceiptPage() {
                 {payError.message}
               </div>
             )}
+            {successMsg && (
+                <div className="text-sm text-emerald-200 border border-emerald-500/50 bg-emerald-950/40 rounded-md px-3 py-2">
+                    ✅ {successMsg}
+                </div>
+            )}
 
-            <div className="flex justify-end pt-2">
-              <button
-                type="submit"
-                disabled={isPaySubmitting || !isConnected}
-                className={`rounded-full px-6 py-2 text-sm font-medium text-slate-50 disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_18px_rgba(56,189,248,0.4)] ${
-                  paymentMode === "swap" 
-                    ? "bg-purple-600 hover:bg-purple-500 border border-purple-400" 
-                    : "bg-sky-500 hover:bg-sky-400 border border-sky-300"
-                }`}
-              >
-                {isPaySubmitting
-                  ? "Processing..."
-                  : paymentMode === "swap"
-                  ? "Approve & Swap & Pay"
-                  : "Approve & Pay"}
-              </button>
-            </div>
+            {paymentMode !== "card" && (
+                <div className="flex justify-end pt-2">
+                <button
+                    type="submit"
+                    disabled={isPaySubmitting || !isConnected}
+                    className={`rounded-full px-6 py-2 text-sm font-medium text-slate-50 disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_18px_rgba(56,189,248,0.4)] transition-all ${
+                    paymentMode === "swap" 
+                        ? "bg-purple-600 hover:bg-purple-500 border border-purple-400" 
+                        : "bg-sky-500 hover:bg-sky-400 border border-sky-300"
+                    }`}
+                >
+                    {isPaySubmitting
+                    ? "Processing..."
+                    : paymentMode === "swap"
+                    ? "Approve & Swap & Pay"
+                    : "Approve & Pay"}
+                </button>
+                </div>
+            )}
           </form>
         </div>
       )}
 
-      {/* --- Last Receipt Display (Updated UI) --- */}
+      {/* --- Last Receipt Display --- */}
       <div className="bg-[#050814] border border-slate-800 rounded-2xl p-4 shadow-[0_0_25px_rgba(15,23,42,0.9)] space-y-3">
         <h2 className="text-sm font-semibold text-slate-50">
           Last receipt for this wallet
