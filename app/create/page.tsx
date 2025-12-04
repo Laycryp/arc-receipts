@@ -14,9 +14,9 @@ import {
 import dynamic from "next/dynamic";
 
 const CrossmintButton = dynamic(
-  () => import("../components/CrossmintButton"), 
+  () => import("../components/CrossmintButton"),
   {
-    ssr: false, 
+    ssr: false,
     loading: () => (
       <div className="animate-pulse bg-emerald-900/30 h-12 w-full rounded-md flex items-center justify-center text-emerald-500 text-xs">
         Loading Secure Checkout...
@@ -34,10 +34,10 @@ import { ARC_USDC_ADDRESS, ARC_USDC_ABI } from "../../lib/usdcToken";
 const ARC_FX_ROUTER_ADDRESS = "0xAe6147ce9Fc4624B01C79EEeFd7315294CFEE755";
 
 const SUPPORTED_TARGET_TOKENS = [
-  { 
-    symbol: "EURC", 
-    name: "Euro Coin", 
-    address: "0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a" 
+  {
+    symbol: "EURC",
+    name: "Euro Coin",
+    address: "0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a"
   },
 ];
 
@@ -83,7 +83,7 @@ type Receipt = {
   destinationCurrency: string;
   corridor: string;
   timestamp: bigint;
-  token?: string; 
+  token?: string;
 };
 
 function parseAmountToBigInt(amount: string): bigint {
@@ -105,7 +105,6 @@ function parseUsdcAmount(input: string): bigint {
   }
   return parseAmountToBigInt(value);
 }
-
 function formatUsdc(amount: bigint): string {
   const DECIMALS = BigInt("1000000");
   const whole = amount / DECIMALS;
@@ -136,7 +135,7 @@ function CreateReceiptContent() {
   const [paymentMode, setPaymentMode] = useState<"direct" | "swap" | "card">("direct");
 
   const [to, setTo] = useState("");
-  const [amount, setAmount] = useState(""); 
+  const [amount, setAmount] = useState("");
   const [category, setCategory] = useState<number>(2);
   const [reason, setReason] = useState("");
   const [sourceCurrency, setSourceCurrency] = useState("USD");
@@ -144,15 +143,10 @@ function CreateReceiptContent() {
   const [corridor, setCorridor] = useState("USD-USD");
   const [targetTokenAddress, setTargetTokenAddress] = useState(SUPPORTED_TARGET_TOKENS[0].address);
 
-  const [cardNumber, setCardNumber] = useState("");
-  const [cardExpiry, setCardExpiry] = useState("");
-  const [cardCvc, setCardCvc] = useState("");
-
   const [formError, setFormError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [expectedReceiptId, setExpectedReceiptId] = useState<string | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
-  const [isSimulatingCard, setIsSimulatingCard] = useState(false);
 
   useEffect(() => {
     const paramTo = searchParams.get("to");
@@ -161,11 +155,11 @@ function CreateReceiptContent() {
     const paramMode = searchParams.get("mode");
 
     if (paramTo || paramAmount || paramReason) {
-       setIsFormOpen(true);
-       if (paramTo) setTo(paramTo);
-       if (paramAmount) setAmount(paramAmount);
-       if (paramReason) setReason(paramReason);
-       if (paramMode === "card") setPaymentMode("card");
+      setIsFormOpen(true);
+      if (paramTo) setTo(paramTo);
+      if (paramAmount) setAmount(paramAmount);
+      if (paramReason) setReason(paramReason);
+      if (paramMode === "card") setPaymentMode("card");
     }
   }, [searchParams]);
 
@@ -191,8 +185,8 @@ function CreateReceiptContent() {
     query: { enabled: !!address && paymentMode === "swap" },
   } as any);
 
-  const allowanceValue = 
-    paymentMode === "swap" 
+  const allowanceValue =
+    paymentMode === "swap"
       ? ((allowanceRouter as bigint | undefined) ?? BigInt(0))
       : ((allowanceDirect as bigint | undefined) ?? BigInt(0));
 
@@ -249,8 +243,8 @@ function CreateReceiptContent() {
             id: data.id ?? data[0],
             from: data.from ?? data[1],
             to: data.to ?? data[2],
-            amount: data.amount ?? data[4], 
-            token: data.token ?? data[3],    
+            amount: data.amount ?? data[4],
+            token: data.token ?? data[3],
             category: categoryVal,
             reason: meta.reason ?? meta[1],
             sourceCurrency: meta.sourceCurrency ?? meta[2],
@@ -305,15 +299,15 @@ function CreateReceiptContent() {
 
   useEffect(() => {
     if (paymentMode === "swap") {
-        setSourceCurrency("USDC");
-        const token = SUPPORTED_TARGET_TOKENS.find(t => t.address === targetTokenAddress);
-        setDestinationCurrency(token ? token.symbol : "EURC");
+      setSourceCurrency("USDC");
+      const token = SUPPORTED_TARGET_TOKENS.find(t => t.address === targetTokenAddress);
+      setDestinationCurrency(token ? token.symbol : "EURC");
     } else if (paymentMode === "card") {
-        setSourceCurrency("USD (Card)");
-        setDestinationCurrency("USDC");
+      setSourceCurrency("USD (Card)");
+      setDestinationCurrency("USDC");
     } else {
-        setSourceCurrency("USD");
-        setDestinationCurrency("USD");
+      setSourceCurrency("USD");
+      setDestinationCurrency("USD");
     }
   }, [paymentMode, targetTokenAddress]);
 
@@ -325,7 +319,7 @@ function CreateReceiptContent() {
     if (amount) params.set("amount", amount);
     if (reason) params.set("reason", reason);
     if (paymentMode === "card") params.set("mode", "card");
-    
+
     const link = `${baseUrl}?${params.toString()}`;
     navigator.clipboard.writeText(link);
     setSuccessMsg("Link copied! Share it to request payment.");
@@ -341,7 +335,7 @@ function CreateReceiptContent() {
       setFormError("Please connect your wallet first.");
       return;
     }
-    
+
     let usdcAmount: bigint;
     try {
       usdcAmount = parseUsdcAmount(amount);
@@ -360,7 +354,7 @@ function CreateReceiptContent() {
       toAddress = to as `0x${string}`;
     }
 
-    if (paymentMode === "card") return; 
+    if (paymentMode === "card") return;
 
     if (!publicClient) {
       setFormError("Public client is not ready.");
@@ -376,7 +370,7 @@ function CreateReceiptContent() {
 
     try {
       const spender = paymentMode === "swap" ? ARC_FX_ROUTER_ADDRESS : ARC_RECEIPTS_ADDRESS;
-      
+
       if (allowanceValue < usdcAmount) {
         const approveHash = await writeApproveAsync({
           address: ARC_USDC_ADDRESS,
@@ -385,7 +379,7 @@ function CreateReceiptContent() {
           args: [spender, usdcAmount],
         });
         await publicClient.waitForTransactionReceipt({ hash: approveHash as `0x${string}` });
-        
+
         if (paymentMode === "swap") refetchAllowanceRouter();
         else refetchAllowanceDirect();
       }
@@ -403,15 +397,15 @@ function CreateReceiptContent() {
           abi: ARC_RECEIPTS_ABI,
           functionName: "payWithReceipt",
           args: [
-            ARC_USDC_ADDRESS, 
+            ARC_USDC_ADDRESS,
             toAddress,
             usdcAmount,
             {
-                category: category,
-                reason: reason,
-                sourceCurrency: sourceCurrency,
-                destinationCurrency: destinationCurrency,
-                corridor: corridor
+              category: category,
+              reason: reason,
+              sourceCurrency: sourceCurrency,
+              destinationCurrency: destinationCurrency,
+              corridor: corridor
             }
           ],
         });
@@ -421,12 +415,12 @@ function CreateReceiptContent() {
           abi: ARC_FX_ROUTER_ABI,
           functionName: "swapAndPay",
           args: [
-            ARC_USDC_ADDRESS,      
+            ARC_USDC_ADDRESS,
             targetTokenAddress as `0x${string}`,
-            usdcAmount,            
-            BigInt(0),             
-            toAddress,             
-            category, 
+            usdcAmount,
+            BigInt(0),
+            toAddress,
+            category,
             reason,
             sourceCurrency,
             destinationCurrency,
@@ -441,7 +435,7 @@ function CreateReceiptContent() {
     }
   }
 
-  const isPaySubmitting = isPayPending || isPayConfirming || isSimulatingCard;
+  const isPaySubmitting = isPayPending || isPayConfirming;
 
   let cardContent = null;
   if (lastMyReceipt) {
@@ -455,35 +449,35 @@ function CreateReceiptContent() {
           <div className="p-5 space-y-4">
             <div className="flex justify-between items-start">
               <div>
-                  <span className="block text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-1">Receipt ID</span>
-                  <span className="text-lg font-mono text-slate-200">#{lastMyReceipt.id.toString()}</span>
+                <span className="block text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-1">Receipt ID</span>
+                <span className="text-lg font-mono text-slate-200">#{lastMyReceipt.id.toString()}</span>
               </div>
               <div className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide border ${isSent ? 'bg-rose-950/30 border-rose-500/20 text-rose-200' : 'bg-emerald-950/30 border-emerald-500/20 text-emerald-200'}`}>
-                  {isSent ? 'Sent Out' : 'Received'}
+                {isSent ? 'Sent Out' : 'Received'}
               </div>
             </div>
 
             <div className="flex items-center gap-3">
-                <div className="flex-1 p-3 bg-slate-950/50 rounded-lg border border-slate-800/50 group-hover:bg-slate-900 transition-colors">
-                  <div className="text-[10px] text-slate-500 mb-1">Total Amount</div>
-                  <div className="text-base font-semibold text-white">{formatUsdc(lastMyReceipt.amount)} <span className="text-xs font-normal text-slate-400">USDC</span></div>
+              <div className="flex-1 p-3 bg-slate-950/50 rounded-lg border border-slate-800/50 group-hover:bg-slate-900 transition-colors">
+                <div className="text-[10px] text-slate-500 mb-1">Total Amount</div>
+                <div className="text-base font-semibold text-white">{formatUsdc(lastMyReceipt.amount)} <span className="text-xs font-normal text-slate-400">USDC</span></div>
+              </div>
+              {isSwap && (
+                <div className="flex flex-col items-center justify-center w-12 h-12 rounded-full bg-purple-900/10 border border-purple-500/20 text-purple-300">
+                  <span className="text-[9px] font-bold">FX</span>
+                  <span className="text-[9px]">Swap</span>
                 </div>
-                {isSwap && (
-                    <div className="flex flex-col items-center justify-center w-12 h-12 rounded-full bg-purple-900/10 border border-purple-500/20 text-purple-300">
-                        <span className="text-[9px] font-bold">FX</span>
-                        <span className="text-[9px]">Swap</span>
-                    </div>
-                )}
+              )}
             </div>
 
             <div className="space-y-2 pt-2 border-t border-slate-800/50">
               <div className="flex justify-between text-xs">
-                  <span className="text-slate-500">Route</span>
-                  <span className="text-slate-300 font-mono">{lastMyReceipt.corridor}</span>
+                <span className="text-slate-500">Route</span>
+                <span className="text-slate-300 font-mono">{lastMyReceipt.corridor}</span>
               </div>
               <div className="flex justify-between text-xs">
-                  <span className="text-slate-500">Date</span>
-                  <span className="text-slate-300">{formatTimestamp(lastMyReceipt.timestamp)}</span>
+                <span className="text-slate-500">Date</span>
+                <span className="text-slate-300">{formatTimestamp(lastMyReceipt.timestamp)}</span>
               </div>
             </div>
           </div>
@@ -533,51 +527,48 @@ function CreateReceiptContent() {
             <button
               type="button"
               onClick={() => setPaymentMode("direct")}
-              className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${
-                paymentMode === "direct"
-                  ? "bg-sky-600 text-white shadow-md"
-                  : "text-slate-400 hover:text-slate-200"
-              }`}
+              className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${paymentMode === "direct"
+                ? "bg-sky-600 text-white shadow-md"
+                : "text-slate-400 hover:text-slate-200"
+                }`}
             >
               Direct (USDC)
             </button>
             <button
               type="button"
               onClick={() => setPaymentMode("swap")}
-              className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${
-                paymentMode === "swap"
-                  ? "bg-purple-600 text-white shadow-md"
-                  : "text-slate-400 hover:text-slate-200"
-              }`}
+              className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${paymentMode === "swap"
+                ? "bg-purple-600 text-white shadow-md"
+                : "text-slate-400 hover:text-slate-200"
+                }`}
             >
               FX Swap
             </button>
             <button
               type="button"
               onClick={() => setPaymentMode("card")}
-              className={`flex-1 py-2 text-sm font-medium rounded-md transition-all flex items-center justify-center gap-1 ${
-                paymentMode === "card"
-                  ? "bg-emerald-600 text-white shadow-md"
-                  : "text-slate-400 hover:text-slate-200"
-              }`}
+              className={`flex-1 py-2 text-sm font-medium rounded-md transition-all flex items-center justify-center gap-1 ${paymentMode === "card"
+                ? "bg-emerald-600 text-white shadow-md"
+                : "text-slate-400 hover:text-slate-200"
+                }`}
             >
               <span>💳</span> Card (Fiat)
             </button>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4 bg-slate-900/60 border border-slate-800 rounded-xl p-4">
-            
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm mb-1 text-slate-200 flex justify-between items-center">
-                   <span>Recipient (optional)</span>
-                   <button 
-                     type="button"
-                     onClick={handleCopyPaymentLink}
-                     className="text-[10px] text-sky-400 hover:text-sky-300 hover:underline"
-                   >
-                     🔗 Copy Request Link
-                   </button>
+                  <span>Recipient (optional)</span>
+                  <button
+                    type="button"
+                    onClick={handleCopyPaymentLink}
+                    className="text-[10px] text-sky-400 hover:text-sky-300 hover:underline"
+                  >
+                    🔗 Copy Request Link
+                  </button>
                 </label>
                 <input
                   className="w-full rounded-md bg-slate-950 border border-slate-700 px-3 py-2 text-sm text-slate-50 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500/50"
@@ -606,25 +597,25 @@ function CreateReceiptContent() {
             </div>
 
             {paymentMode === "card" && (
-                <div className="bg-emerald-950/20 border border-emerald-500/30 rounded-lg p-4 space-y-3 flex flex-col items-center text-center">
-                    <div className="text-xs text-emerald-400 font-medium uppercase tracking-wider mb-2">
-                        Powered by Crossmint
-                    </div>
-                    
-                    <CrossmintButton
-                        clientId="YOUR_CROSSMINT_CLIENT_ID_HERE"
-                        mintConfig={{
-                            type: "erc-20",
-                            totalPrice: amount || "10", 
-                        }}
-                        environment="staging"
-                        className="w-full"
-                    />
-
-                    <p className="text-[10px] text-emerald-300/60 mt-1">
-                       Secure checkout window will open. Supports Visa, Mastercard, and Apple Pay.
-                    </p>
+              <div className="bg-emerald-950/20 border border-emerald-500/30 rounded-lg p-4 space-y-3 flex flex-col items-center text-center">
+                <div className="text-xs text-emerald-400 font-medium uppercase tracking-wider mb-2">
+                  Powered by Crossmint
                 </div>
+
+                <CrossmintButton
+                  clientId="YOUR_CROSSMINT_CLIENT_ID_HERE"
+                  mintConfig={{
+                    type: "erc-20",
+                    totalPrice: amount || "10",
+                  }}
+                  environment="staging"
+                  className="w-full"
+                />
+
+                <p className="text-[10px] text-emerald-300/60 mt-1">
+                  Secure checkout window will open. Supports Visa, Mastercard, and Apple Pay.
+                </p>
+              </div>
             )}
 
             {paymentMode === "swap" && (
@@ -644,7 +635,7 @@ function CreateReceiptContent() {
                   ))}
                 </select>
                 <p className="text-[11px] text-purple-300/70 mt-1">
-                  Router will swap USDC → {SUPPORTED_TARGET_TOKENS.find(t=>t.address===targetTokenAddress)?.symbol} and send to recipient.
+                  Router will swap USDC → {SUPPORTED_TARGET_TOKENS.find(t => t.address === targetTokenAddress)?.symbol} and send to recipient.
                 </p>
               </div>
             )}
@@ -678,7 +669,7 @@ function CreateReceiptContent() {
                 <input
                   className="w-full rounded-md bg-slate-950 border border-slate-700 px-3 py-2 text-sm text-slate-50 placeholder:text-slate-500 opacity-70"
                   value={sourceCurrency}
-                  readOnly 
+                  readOnly
                 />
               </div>
               <div>
@@ -686,7 +677,7 @@ function CreateReceiptContent() {
                 <input
                   className="w-full rounded-md bg-slate-950 border border-slate-700 px-3 py-2 text-sm text-slate-50 placeholder:text-slate-500 opacity-70"
                   value={destinationCurrency}
-                  readOnly 
+                  readOnly
                 />
               </div>
               <div>
@@ -710,29 +701,28 @@ function CreateReceiptContent() {
               </div>
             )}
             {successMsg && (
-                <div className="text-sm text-emerald-200 border border-emerald-500/50 bg-emerald-950/40 rounded-md px-3 py-2">
-                    ✅ {successMsg}
-                </div>
+              <div className="text-sm text-emerald-200 border border-emerald-500/50 bg-emerald-950/40 rounded-md px-3 py-2">
+                ✅ {successMsg}
+              </div>
             )}
 
             {paymentMode !== "card" && (
-                <div className="flex justify-end pt-2">
+              <div className="flex justify-end pt-2">
                 <button
-                    type="submit"
-                    disabled={isPaySubmitting || !isConnected}
-                    className={`rounded-full px-6 py-2 text-sm font-medium text-slate-50 disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_18px_rgba(56,189,248,0.4)] transition-all ${
-                    paymentMode === "swap" 
-                        ? "bg-purple-600 hover:bg-purple-500 border border-purple-400" 
-                        : "bg-sky-500 hover:bg-sky-400 border border-sky-300"
+                  type="submit"
+                  disabled={isPaySubmitting || !isConnected}
+                  className={`rounded-full px-6 py-2 text-sm font-medium text-slate-50 disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_18px_rgba(56,189,248,0.4)] transition-all ${paymentMode === "swap"
+                    ? "bg-purple-600 hover:bg-purple-500 border border-purple-400"
+                    : "bg-sky-500 hover:bg-sky-400 border border-sky-300"
                     }`}
                 >
-                    {isPaySubmitting
+                  {isPaySubmitting
                     ? "Processing..."
                     : paymentMode === "swap"
-                    ? "Approve & Swap & Pay"
-                    : "Approve & Pay"}
+                      ? "Approve & Swap & Pay"
+                      : "Approve & Pay"}
                 </button>
-                </div>
+              </div>
             )}
           </form>
         </div>
