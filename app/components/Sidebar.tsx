@@ -14,7 +14,8 @@ export default function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="w-64 bg-[#050814] border-r border-slate-800 px-4 py-5 flex flex-col">
+    // ✅ التعديل هنا: أضفنا h-screen sticky top-0 لجعلها ثابتة بطول الشاشة
+    <aside className="w-64 bg-[#050814] border-r border-slate-800 px-4 py-5 flex flex-col h-screen sticky top-0 overflow-y-auto">
       {/* TOP: logo + name + connect */}
       <div className="flex items-center justify-between mb-8">
         <div className="flex items-center gap-3">

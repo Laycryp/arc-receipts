@@ -8,6 +8,8 @@ import {
   ARC_RECEIPTS_ABI,
 } from "../../lib/arcReceiptsContract";
 
+import AnalyticsDashboard from "../components/AnalyticsDashboard";
+
 const categoryLabels: Record<number, string> = {
   0: "Salary",
   1: "Invoice",
@@ -42,7 +44,7 @@ type Receipt = {
   id: bigint;
   from: string;
   to: string;
-  token: string; // New field
+  token: string;
   amount: bigint;
   category: number;
   reason: string;
@@ -59,6 +61,10 @@ export default function HistoryPage() {
   const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
+
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 5;
 
   const [mode, setMode] = useState<"all" | "sent" | "received">("all");
   const [fromDate, setFromDate] = useState("");
@@ -108,8 +114,6 @@ export default function HistoryPage() {
             args: [BigInt(id)],
           });
 
-          // --- Parsing Logic for New Struct ---
-          // data structure: [id, from, to, token, amount, meta(tuple), timestamp]
           const meta = data.meta || data[5];
           const categoryVal = typeof meta.category !== 'undefined' ? Number(meta.category) : Number(meta[0]);
 
@@ -153,7 +157,11 @@ export default function HistoryPage() {
     };
   }, [publicClient, isConnected, address]);
 
-  // Filtering Logic
+  // Reset pagination when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [mode, fromDate, toDate]);
+
   const fromTs = fromDate ? new Date(fromDate).getTime() / 1000 : null;
   const toTs = toDate ? new Date(toDate).getTime() / 1000 + 24 * 60 * 60 : null;
   const addrLower = address?.toLowerCase();
@@ -181,7 +189,19 @@ export default function HistoryPage() {
   });
 
   const galleryItems = filtered.slice(0, 6);
-  const recentRows = filtered;
+  
+  // ✅ Pagination Logic
+  const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE);
+  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+  const currentRows = filtered.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+
+  const handleNextPage = () => {
+    if (currentPage < totalPages) setCurrentPage(prev => prev + 1);
+  };
+
+  const handlePrevPage = () => {
+    if (currentPage > 1) setCurrentPage(prev => prev - 1);
+  };
 
   return (
     <section className="space-y-8 pb-10">
@@ -202,7 +222,7 @@ export default function HistoryPage() {
       ) : (
         <>
           {/* FILTERS BAR */}
-          <div className="flex flex-col lg:flex-row gap-4 justify-between items-start lg:items-center bg-slate-900/40 border border-slate-800/60 p-2 rounded-2xl backdrop-blur-sm">
+          <div className="flex flex-col lg:flex-row gap-4 justify-between items-start lg:items-center bg-slate-900/40 border border-slate-800/60 p-2 rounded-2xl backdrop-blur-sm mb-6">
             <div className="flex bg-slate-950/80 p-1 rounded-xl border border-slate-800">
               {(["all", "sent", "received"] as const).map((m) => (
                 <button
@@ -241,6 +261,10 @@ export default function HistoryPage() {
             </div>
           </div>
 
+          {!isLoading && !fetchError && myReceipts.length > 0 && (
+             <AnalyticsDashboard receipts={myReceipts} currentAddress={address} />
+          )}
+
           {/* GALLERY GRID */}
           <div className="space-y-4">
              <div className="flex items-center justify-between px-1">
@@ -269,7 +293,6 @@ export default function HistoryPage() {
                    return (
                     <Link key={r.id.toString()} href={`/receipt/${r.id.toString()}`}>
                       <div className="group relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#0B1021] to-[#060914] border border-slate-800 hover:border-sky-500/40 transition-all duration-300 hover:shadow-[0_0_30px_-5px_rgba(14,165,233,0.15)] cursor-pointer">
-                        {/* Status Line */}
                         <div className={`absolute top-0 left-0 w-1 h-full ${isSent ? 'bg-rose-500/50' : 'bg-emerald-500/50'}`} />
                         
                         <div className="p-5 space-y-4">
@@ -315,55 +338,81 @@ export default function HistoryPage() {
             )}
           </div>
 
-          {/* TABLE VIEW */}
-          <div className="bg-[#050814] border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+          {/* TABLE VIEW (PAGINATED) */}
+          <div className="bg-[#050814] border border-slate-800 rounded-2xl overflow-hidden shadow-xl mt-6">
              <div className="px-6 py-4 border-b border-slate-800 bg-slate-900/20">
                 <h2 className="text-xs font-bold text-slate-500 uppercase tracking-widest">Full Transaction Log</h2>
              </div>
              
-             {recentRows.length > 0 && (
-                <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs text-slate-300">
-                        <thead className="bg-slate-950 text-slate-500 font-semibold uppercase tracking-wider">
-                            <tr>
-                                <th className="px-6 py-4">ID</th>
-                                <th className="px-6 py-4">Type</th>
-                                <th className="px-6 py-4">Amount</th>
-                                <th className="px-6 py-4">Route</th>
-                                <th className="px-6 py-4">Category</th>
-                                <th className="px-6 py-4">Counterparty</th>
-                                <th className="px-6 py-4">Time</th>
-                                <th className="px-6 py-4 text-right">Action</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-800">
-                            {recentRows.map((r) => {
-                                const isSent = addrLower && r.from.toLowerCase() === addrLower;
-                                const counterparty = isSent ? r.to : r.from;
-                                
-                                return (
-                                    <tr key={r.id.toString()} className="hover:bg-slate-900/40 transition-colors">
-                                        <td className="px-6 py-4 font-mono text-slate-500">#{r.id.toString()}</td>
-                                        <td className="px-6 py-4">
-                                            <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium ${isSent ? 'text-rose-300 bg-rose-950/30' : 'text-emerald-300 bg-emerald-950/30'}`}>
-                                                {isSent ? 'OUT' : 'IN'}
-                                            </span>
-                                        </td>
-                                        <td className="px-6 py-4 font-medium text-slate-100">{formatUsdc(r.amount)}</td>
-                                        <td className="px-6 py-4 font-mono text-[10px] text-slate-400">{r.corridor}</td>
-                                        <td className="px-6 py-4 text-slate-400">{categoryLabels[r.category] ?? 'Other'}</td>
-                                        <td className="px-6 py-4 font-mono text-slate-500 truncate max-w-[100px]">{counterparty.substring(0,6)}...{counterparty.substring(38)}</td>
-                                        <td className="px-6 py-4 text-slate-500">{new Date(Number(r.timestamp) * 1000).toLocaleDateString()}</td>
-                                        <td className="px-6 py-4 text-right">
-                                            <Link href={`/receipt/${r.id.toString()}`} className="text-sky-400 hover:text-sky-300 hover:underline">
-                                                View
-                                            </Link>
-                                        </td>
-                                    </tr>
-                                )
-                            })}
-                        </tbody>
-                    </table>
+             {filtered.length > 0 && (
+                <div>
+                    {/* الجدول يعرض 5 صفوف فقط */}
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs text-slate-300">
+                            <thead className="bg-slate-950 text-slate-500 font-semibold uppercase tracking-wider border-b border-slate-800">
+                                <tr>
+                                    <th className="px-6 py-4">ID</th>
+                                    <th className="px-6 py-4">Type</th>
+                                    <th className="px-6 py-4">Amount</th>
+                                    <th className="px-6 py-4">Route</th>
+                                    <th className="px-6 py-4">Category</th>
+                                    <th className="px-6 py-4">Counterparty</th>
+                                    <th className="px-6 py-4">Time</th>
+                                    <th className="px-6 py-4 text-right">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-800">
+                                {currentRows.map((r) => {
+                                    const isSent = addrLower && r.from.toLowerCase() === addrLower;
+                                    const counterparty = isSent ? r.to : r.from;
+                                    
+                                    return (
+                                        <tr key={r.id.toString()} className="hover:bg-slate-900/40 transition-colors">
+                                            <td className="px-6 py-4 font-mono text-slate-500">#{r.id.toString()}</td>
+                                            <td className="px-6 py-4">
+                                                <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium ${isSent ? 'text-rose-300 bg-rose-950/30' : 'text-emerald-300 bg-emerald-950/30'}`}>
+                                                    {isSent ? 'OUT' : 'IN'}
+                                                </span>
+                                            </td>
+                                            <td className="px-6 py-4 font-medium text-slate-100">{formatUsdc(r.amount)}</td>
+                                            <td className="px-6 py-4 font-mono text-[10px] text-slate-400">{r.corridor}</td>
+                                            <td className="px-6 py-4 text-slate-400">{categoryLabels[r.category] ?? 'Other'}</td>
+                                            <td className="px-6 py-4 font-mono text-slate-500 truncate max-w-[100px]">{counterparty.substring(0,6)}...{counterparty.substring(38)}</td>
+                                            <td className="px-6 py-4 text-slate-500">{new Date(Number(r.timestamp) * 1000).toLocaleDateString()}</td>
+                                            <td className="px-6 py-4 text-right">
+                                                <Link href={`/receipt/${r.id.toString()}`} className="text-sky-400 hover:text-sky-300 hover:underline">
+                                                    View
+                                                </Link>
+                                            </td>
+                                        </tr>
+                                    )
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    {/* ✅ شريط التنقل (Pagination Bar) */}
+                    <div className="flex items-center justify-between px-6 py-4 bg-slate-950/50 border-t border-slate-800">
+                        <span className="text-xs text-slate-500">
+                            Page <span className="text-slate-300 font-semibold">{currentPage}</span> of <span className="text-slate-300 font-semibold">{totalPages}</span>
+                        </span>
+                        <div className="flex gap-2">
+                            <button 
+                                onClick={handlePrevPage}
+                                disabled={currentPage === 1}
+                                className="px-3 py-1.5 rounded-md border border-slate-700 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                            >
+                                Previous
+                            </button>
+                            <button 
+                                onClick={handleNextPage}
+                                disabled={currentPage === totalPages}
+                                className="px-3 py-1.5 rounded-md border border-slate-700 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                            >
+                                Next
+                            </button>
+                        </div>
+                    </div>
                 </div>
              )}
           </div>
