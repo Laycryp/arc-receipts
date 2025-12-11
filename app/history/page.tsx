@@ -9,6 +9,8 @@ import {
 } from "../../lib/arcReceiptsContract";
 
 import AnalyticsDashboard from "../components/AnalyticsDashboard";
+// ✅ استيراد دالة التصدير الخارجية
+import { exportReceiptsToCsv } from "../../lib/csvExporter";
 
 const categoryLabels: Record<number, string> = {
   0: "Salary",
@@ -190,7 +192,7 @@ export default function HistoryPage() {
 
   const galleryItems = filtered.slice(0, 6);
   
-  // ✅ Pagination Logic
+  // Pagination Logic
   const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE);
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
   const currentRows = filtered.slice(startIndex, startIndex + ITEMS_PER_PAGE);
@@ -340,13 +342,23 @@ export default function HistoryPage() {
 
           {/* TABLE VIEW (PAGINATED) */}
           <div className="bg-[#050814] border border-slate-800 rounded-2xl overflow-hidden shadow-xl mt-6">
-             <div className="px-6 py-4 border-b border-slate-800 bg-slate-900/20">
+             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-900/20">
                 <h2 className="text-xs font-bold text-slate-500 uppercase tracking-widest">Full Transaction Log</h2>
+                
+                {/* ✅ زر التصدير (Export Button) */}
+                {filtered.length > 0 && (
+                  <button
+                    onClick={() => exportReceiptsToCsv(filtered, address)}
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-900/30 border border-emerald-500/30 text-emerald-400 text-xs font-medium hover:bg-emerald-900/50 hover:border-emerald-500/50 transition-all"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                    Export CSV
+                  </button>
+                )}
              </div>
              
              {filtered.length > 0 && (
                 <div>
-                    {/* الجدول يعرض 5 صفوف فقط */}
                     <div className="overflow-x-auto">
                         <table className="w-full text-left text-xs text-slate-300">
                             <thead className="bg-slate-950 text-slate-500 font-semibold uppercase tracking-wider border-b border-slate-800">
@@ -391,7 +403,7 @@ export default function HistoryPage() {
                         </table>
                     </div>
 
-                    {/* ✅ شريط التنقل (Pagination Bar) */}
+                    {/* Pagination Bar */}
                     <div className="flex items-center justify-between px-6 py-4 bg-slate-950/50 border-t border-slate-800">
                         <span className="text-xs text-slate-500">
                             Page <span className="text-slate-300 font-semibold">{currentPage}</span> of <span className="text-slate-300 font-semibold">{totalPages}</span>
