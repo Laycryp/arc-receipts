@@ -9,9 +9,9 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "@crossmint/client-sdk-react-ui": "^2.6.4",
     "@rainbow-me/rainbowkit": "^2.2.9",
     "@tanstack/react-query": "^5.90.11",
+    "bs58": "^6.0.0",
     "html2canvas": "^1.4.1",
     "next": "14.2.15",
     "react": "18.2.0",

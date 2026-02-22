@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState, FormEvent, useEffect, Suspense } from "react"; // ✅ إضافة Suspense
+import { useState, FormEvent, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   useAccount,
@@ -11,35 +11,14 @@ import {
   useReadContract,
 } from "wagmi";
 
-import dynamic from "next/dynamic";
-
-const CrossmintButton = dynamic(
-  () => import("../components/CrossmintButton"),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="animate-pulse bg-emerald-900/30 h-12 w-full rounded-md flex items-center justify-center text-emerald-500 text-xs">
-        Loading Secure Checkout...
-      </div>
-    ),
-  }
-);
-
 import {
   ARC_RECEIPTS_ADDRESS,
   ARC_RECEIPTS_ABI,
 } from "../../lib/arcReceiptsContract";
 import { ARC_USDC_ADDRESS, ARC_USDC_ABI } from "../../lib/usdcToken";
+import { SUPPORTED_TOKENS } from "../../lib/supportedTokens";
 
 const ARC_FX_ROUTER_ADDRESS = "0xAe6147ce9Fc4624B01C79EEeFd7315294CFEE755";
-
-const SUPPORTED_TARGET_TOKENS = [
-  {
-    symbol: "EURC",
-    name: "Euro Coin",
-    address: "0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a"
-  },
-];
 
 const ARC_FX_ROUTER_ABI = [
   {
@@ -105,6 +84,7 @@ function parseUsdcAmount(input: string): bigint {
   }
   return parseAmountToBigInt(value);
 }
+
 function formatUsdc(amount: bigint): string {
   const DECIMALS = BigInt("1000000");
   const whole = amount / DECIMALS;
@@ -125,28 +105,34 @@ function formatTimestamp(ts: bigint): string {
   });
 }
 
-// 1. قمنا بتغيير اسم الدالة الأصلية لتصبح مكوناً داخلياً
+const swapTargetTokens = Object.values(SUPPORTED_TOKENS).filter(t => t.symbol !== "USDC");
+
 function CreateReceiptContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { address, isConnected } = useAccount();
   const publicClient = usePublicClient();
 
-  const [paymentMode, setPaymentMode] = useState<"direct" | "swap" | "card">("direct");
+  const [paymentMode, setPaymentMode] = useState<"direct" | "swap">("direct");
 
   const [to, setTo] = useState("");
   const [amount, setAmount] = useState("");
   const [category, setCategory] = useState<number>(2);
   const [reason, setReason] = useState("");
-  const [sourceCurrency, setSourceCurrency] = useState("USD");
-  const [destinationCurrency, setDestinationCurrency] = useState("USD");
-  const [corridor, setCorridor] = useState("USD-USD");
-  const [targetTokenAddress, setTargetTokenAddress] = useState(SUPPORTED_TARGET_TOKENS[0].address);
+  const [sourceCurrency, setSourceCurrency] = useState("USDC");
+  const [destinationCurrency, setDestinationCurrency] = useState("USDC");
+  const [corridor, setCorridor] = useState("USDC-USDC");
+  
+  const [targetTokenAddress, setTargetTokenAddress] = useState(swapTargetTokens[0]?.address || "");
 
   const [formError, setFormError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [expectedReceiptId, setExpectedReceiptId] = useState<string | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
+
+  // States for Circle API Quote
+  const [isFetchingQuote, setIsFetchingQuote] = useState(false);
+  const [quoteDetails, setQuoteDetails] = useState<{rate?: number, id?: string, amountOut?: string} | null>(null);
 
   useEffect(() => {
     const paramTo = searchParams.get("to");
@@ -159,9 +145,14 @@ function CreateReceiptContent() {
       if (paramTo) setTo(paramTo);
       if (paramAmount) setAmount(paramAmount);
       if (paramReason) setReason(paramReason);
-      if (paramMode === "card") setPaymentMode("card");
+      if (paramMode === "swap") setPaymentMode("swap");
     }
   }, [searchParams]);
+
+  // Reset quote when amount or currency changes
+  useEffect(() => {
+    setQuoteDetails(null);
+  }, [amount, targetTokenAddress]);
 
   const {
     data: allowanceDirect,
@@ -298,16 +289,12 @@ function CreateReceiptContent() {
   }, [sourceCurrency, destinationCurrency]);
 
   useEffect(() => {
+    setSourceCurrency("USDC");
     if (paymentMode === "swap") {
-      setSourceCurrency("USDC");
-      const token = SUPPORTED_TARGET_TOKENS.find(t => t.address === targetTokenAddress);
+      const token = Object.values(SUPPORTED_TOKENS).find(t => t.address === targetTokenAddress);
       setDestinationCurrency(token ? token.symbol : "EURC");
-    } else if (paymentMode === "card") {
-      setSourceCurrency("USD (Card)");
-      setDestinationCurrency("USDC");
     } else {
-      setSourceCurrency("USD");
-      setDestinationCurrency("USD");
+      setDestinationCurrency("USDC");
     }
   }, [paymentMode, targetTokenAddress]);
 
@@ -318,12 +305,57 @@ function CreateReceiptContent() {
     if (to) params.set("to", to);
     if (amount) params.set("amount", amount);
     if (reason) params.set("reason", reason);
-    if (paymentMode === "card") params.set("mode", "card");
+    if (paymentMode === "swap") params.set("mode", "swap");
 
     const link = `${baseUrl}?${params.toString()}`;
     navigator.clipboard.writeText(link);
     setSuccessMsg("Link copied! Share it to request payment.");
     setTimeout(() => setSuccessMsg(null), 3000);
+  };
+
+  // ✅ الدالة الجديدة لجلب التسعيرة من Circle API
+  const handleGetQuote = async () => {
+    if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) {
+      setFormError("Please enter a valid amount first.");
+      return;
+    }
+    
+    setIsFetchingQuote(true);
+    setFormError(null);
+    setQuoteDetails(null);
+
+    try {
+      const token = Object.values(SUPPORTED_TOKENS).find(t => t.address === targetTokenAddress);
+      const toCurr = token ? token.symbol : "EURC";
+
+      const res = await fetch('/api/quote', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amount: amount,
+          fromCurrency: "USDC",
+          toCurrency: toCurr
+        })
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to fetch quote from Circle");
+      }
+
+      setQuoteDetails({
+        rate: data.rate,
+        id: data.id,
+        amountOut: data.to?.amount
+      });
+      
+    } catch (err: any) {
+      console.error(err);
+      setFormError(err.message);
+    } finally {
+      setIsFetchingQuote(false);
+    }
   };
 
   async function handleSubmit(e: FormEvent) {
@@ -333,6 +365,11 @@ function CreateReceiptContent() {
 
     if (!isConnected || !address) {
       setFormError("Please connect your wallet first.");
+      return;
+    }
+
+    if (paymentMode === "swap" && !quoteDetails) {
+      setFormError("Please get a quote first before paying.");
       return;
     }
 
@@ -353,8 +390,6 @@ function CreateReceiptContent() {
       }
       toAddress = to as `0x${string}`;
     }
-
-    if (paymentMode === "card") return;
 
     if (!publicClient) {
       setFormError("Public client is not ready.");
@@ -418,7 +453,7 @@ function CreateReceiptContent() {
             ARC_USDC_ADDRESS,
             targetTokenAddress as `0x${string}`,
             usdcAmount,
-            BigInt(0),
+            BigInt(0), // مؤقتاً لحين استبدال الروتر
             toAddress,
             category,
             reason,
@@ -544,16 +579,6 @@ function CreateReceiptContent() {
             >
               FX Swap
             </button>
-            <button
-              type="button"
-              onClick={() => setPaymentMode("card")}
-              className={`flex-1 py-2 text-sm font-medium rounded-md transition-all flex items-center justify-center gap-1 ${paymentMode === "card"
-                ? "bg-emerald-600 text-white shadow-md"
-                : "text-slate-400 hover:text-slate-200"
-                }`}
-            >
-              <span>💳</span> Card (Fiat)
-            </button>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4 bg-slate-900/60 border border-slate-800 rounded-xl p-4">
@@ -580,7 +605,7 @@ function CreateReceiptContent() {
 
               <div>
                 <label className="block text-sm mb-1 text-slate-200">
-                  Amount {paymentMode === 'card' ? '(USD)' : '(USDC)'} *
+                  Amount (USDC) *
                 </label>
                 <input
                   className="w-full rounded-md bg-slate-950 border border-slate-700 px-3 py-2 text-sm text-slate-50 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500/50"
@@ -588,55 +613,54 @@ function CreateReceiptContent() {
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
                 />
-                {paymentMode !== 'card' && (
-                  <p className="text-[11px] text-slate-500 mt-1">
-                    Allowance: {allowanceValue ? `${formatUsdc(allowanceValue)} USDC` : "0"}
-                  </p>
-                )}
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Allowance: {allowanceValue ? `${formatUsdc(allowanceValue)} USDC` : "0"}
+                </p>
               </div>
             </div>
 
-            {paymentMode === "card" && (
-              <div className="bg-emerald-950/20 border border-emerald-500/30 rounded-lg p-4 space-y-3 flex flex-col items-center text-center">
-                <div className="text-xs text-emerald-400 font-medium uppercase tracking-wider mb-2">
-                  Powered by Crossmint
-                </div>
-
-                <CrossmintButton
-                  clientId="YOUR_CROSSMINT_CLIENT_ID_HERE"
-                  mintConfig={{
-                    type: "erc-20",
-                    totalPrice: amount || "10",
-                  }}
-                  environment="staging"
-                  className="w-full"
-                />
-
-                <p className="text-[10px] text-emerald-300/60 mt-1">
-                  Secure checkout window will open. Supports Visa, Mastercard, and Apple Pay.
-                </p>
-              </div>
-            )}
-
             {paymentMode === "swap" && (
-              <div className="bg-purple-900/20 border border-purple-500/30 rounded-lg p-3">
-                <label className="block text-sm mb-1 text-purple-200">
-                  Receive Currency (Swap to) *
-                </label>
-                <select
-                  className="w-full rounded-md bg-slate-950 border border-purple-500/50 px-3 py-2 text-sm text-slate-50 focus:outline-none focus:ring-2 focus:ring-purple-500/50"
-                  value={targetTokenAddress}
-                  onChange={(e) => setTargetTokenAddress(e.target.value)}
-                >
-                  {SUPPORTED_TARGET_TOKENS.map((token) => (
-                    <option key={token.address} value={token.address}>
-                      {token.name} ({token.symbol})
-                    </option>
-                  ))}
-                </select>
-                <p className="text-[11px] text-purple-300/70 mt-1">
-                  Router will swap USDC → {SUPPORTED_TARGET_TOKENS.find(t => t.address === targetTokenAddress)?.symbol} and send to recipient.
-                </p>
+              <div className="bg-purple-900/20 border border-purple-500/30 rounded-lg p-4 space-y-4">
+                <div>
+                  <label className="block text-sm mb-1 text-purple-200">
+                    Receive Currency (Swap to) *
+                  </label>
+                  <select
+                    className="w-full rounded-md bg-slate-950 border border-purple-500/50 px-3 py-2 text-sm text-slate-50 focus:outline-none focus:ring-2 focus:ring-purple-500/50"
+                    value={targetTokenAddress}
+                    onChange={(e) => setTargetTokenAddress(e.target.value)}
+                  >
+                    {swapTargetTokens.map((token) => (
+                      <option key={token.address} value={token.address}>
+                        {token.name} ({token.symbol})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                
+                {/* ✅ قسم عرض التسعيرة وجلبها */}
+                <div className="bg-slate-950/50 border border-purple-500/20 rounded-md p-3 flex items-center justify-between">
+                  <div>
+                    <span className="block text-[10px] text-purple-300/70 uppercase">Estimated Output</span>
+                    <span className="text-lg font-mono text-white">
+                      {quoteDetails ? `${quoteDetails.amountOut} ${destinationCurrency}` : "---"}
+                    </span>
+                    {quoteDetails && (
+                      <span className="block text-[10px] text-purple-400 mt-1">
+                        Rate: 1 USDC = {quoteDetails.rate} {destinationCurrency}
+                      </span>
+                    )}
+                  </div>
+                  
+                  <button
+                    type="button"
+                    onClick={handleGetQuote}
+                    disabled={isFetchingQuote || !amount}
+                    className="bg-purple-600 hover:bg-purple-500 text-white text-xs px-4 py-2 rounded-md disabled:opacity-50 transition-colors"
+                  >
+                    {isFetchingQuote ? "Fetching..." : "Get Live Quote"}
+                  </button>
+                </div>
               </div>
             )}
 
@@ -706,24 +730,22 @@ function CreateReceiptContent() {
               </div>
             )}
 
-            {paymentMode !== "card" && (
-              <div className="flex justify-end pt-2">
-                <button
-                  type="submit"
-                  disabled={isPaySubmitting || !isConnected}
-                  className={`rounded-full px-6 py-2 text-sm font-medium text-slate-50 disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_18px_rgba(56,189,248,0.4)] transition-all ${paymentMode === "swap"
-                    ? "bg-purple-600 hover:bg-purple-500 border border-purple-400"
-                    : "bg-sky-500 hover:bg-sky-400 border border-sky-300"
-                    }`}
-                >
-                  {isPaySubmitting
-                    ? "Processing..."
-                    : paymentMode === "swap"
-                      ? "Approve & Swap & Pay"
-                      : "Approve & Pay"}
-                </button>
-              </div>
-            )}
+            <div className="flex justify-end pt-2">
+              <button
+                type="submit"
+                disabled={isPaySubmitting || !isConnected}
+                className={`rounded-full px-6 py-2 text-sm font-medium text-slate-50 disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_18px_rgba(56,189,248,0.4)] transition-all ${paymentMode === "swap"
+                  ? "bg-purple-600 hover:bg-purple-500 border border-purple-400"
+                  : "bg-sky-500 hover:bg-sky-400 border border-sky-300"
+                  }`}
+              >
+                {isPaySubmitting
+                  ? "Processing..."
+                  : paymentMode === "swap"
+                    ? "Approve & Swap & Pay"
+                    : "Approve & Pay"}
+              </button>
+            </div>
           </form>
         </div>
       )}
@@ -749,7 +771,6 @@ function CreateReceiptContent() {
   );
 }
 
-// 2. هذا هو التصدير الافتراضي الجديد الذي يغلف كل شيء بـ Suspense
 export default function CreateReceiptPage() {
   return (
     <Suspense fallback={<div className="p-10 text-center text-slate-500">Loading form...</div>}>
