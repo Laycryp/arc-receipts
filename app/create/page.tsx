@@ -628,7 +628,7 @@ function CreateReceiptContent() {
                   <select
                     className="w-full rounded-md bg-slate-950 border border-purple-500/50 px-3 py-2 text-sm text-slate-50 focus:outline-none focus:ring-2 focus:ring-purple-500/50"
                     value={targetTokenAddress}
-                    onChange={(e) => setTargetTokenAddress(e.target.value)}
+                    onChange={(e) => setTargetTokenAddress(e.target.value as `0x${string}`)}
                   >
                     {swapTargetTokens.map((token) => (
                       <option key={token.address} value={token.address}>
